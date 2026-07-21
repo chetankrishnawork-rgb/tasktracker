@@ -1,98 +1,102 @@
-# vinext-starter
+# Daymark
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Daymark is a private, offline-ready daily task tracker built with Next.js, Firebase Authentication, Cloud Firestore, and Progressive Web App capabilities.
 
-## Prerequisites
+## Product capabilities
 
-- Node.js `>=22.13.0`
+- Individual and multiline bulk task creation
+- Color-coded groups and priority levels
+- Due dates and server-recorded completion dates
+- Search and task views for today, upcoming, and completed work
+- Confirmed individual and bulk deletion
+- Per-user data isolation
+- Realtime synchronization across devices
+- Offline reads and queued writes through Firestore persistence
+- One-time import of data from the original browser-only Daymark release
+- Installable phone and iPad PWA with safe-area and standalone-mode support
 
-## Quick Start
+## Architecture
+
+- **Source:** GitHub
+- **Frontend:** Next.js 16 and React 19
+- **Hosting:** Firebase App Hosting
+- **Authentication:** Firebase Authentication with Google and email/password
+- **Database:** Cloud Firestore
+- **Offline:** Firestore IndexedDB persistence plus a service-worker app shell
+- **Authorization:** Firestore Security Rules scoped to `users/{uid}`
+
+## Local setup
+
+1. Install Node.js 22 or later and pnpm.
+2. Copy `.env.example` to `.env.local`.
+3. Create a Firebase web app and paste its public configuration into `.env.local`.
+4. Install dependencies and start the application:
+
+   ```bash
+   pnpm install
+   pnpm dev
+   ```
+
+The application displays a configuration checklist instead of failing when Firebase values are absent.
+
+## Firebase configuration
+
+In the Firebase console:
+
+1. Create a Firebase project and register a Web app.
+2. Enable **Authentication → Sign-in method → Google**.
+3. Enable **Authentication → Sign-in method → Email/Password**.
+4. Create a Cloud Firestore database and choose the production region deliberately; it cannot be casually changed later.
+5. Add local, App Hosting, and custom domains to Authentication authorized domains.
+6. Recommended for production: register the web app with **App Check**, select reCAPTCHA Enterprise, and put its site key in `NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY`. Start enforcement only after the App Check metrics show legitimate traffic is verified.
+7. Install the Firebase CLI, associate the repository with the project, and deploy the checked-in rules:
+
+   ```bash
+   firebase login
+   firebase use --add
+   firebase deploy --only firestore:rules,firestore:indexes
+   ```
+
+Security rules are defined in `firestore.rules`. Do not replace them with an allow-all development rule.
+
+## GitHub and Firebase App Hosting deployment
+
+1. Create a private GitHub repository.
+2. Push this directory to the repository's `main` branch.
+3. In Firebase, open **App Hosting** and create a backend.
+4. Connect the GitHub repository and select `main` as the live branch.
+5. Add every variable from `.env.example` to the App Hosting environment, replacing blank values with the Firebase web-app configuration.
+6. Set `NEXT_PUBLIC_APP_URL` to the assigned App Hosting URL or custom production domain.
+7. Review the checked-in `apphosting.yaml` capacity limits, then trigger the first rollout.
+8. Verify Authentication, Firestore writes, offline mode, and PWA installation.
+
+Firebase web-app configuration is intentionally public; authorization is enforced by Authentication and Firestore Security Rules. Never commit a Firebase Admin service-account key.
+
+## Suggested GitHub protections
+
+- Require pull requests before merging to `main`.
+- Require the included CI workflow to pass.
+- Enable dependency alerts and two-factor authentication.
+- Store administrative credentials in Firebase/Google Secret Manager, never in GitHub source.
+- Use separate Firebase projects for development and production.
+
+## Testing
 
 ```bash
-npm install
-npm run dev
-npm run build
+pnpm test
+pnpm lint
+pnpm build
 ```
 
-This starter does not use `wrangler.jsonc`.
+For rule integration testing, run the Firebase Emulator Suite using the ports configured in `firebase.json`. Production acceptance should include Safari on iPhone and iPad, an installed Home Screen launch, offline task creation, reconnection, and cross-device synchronization.
 
-## Included Shape
+## Data model
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```text
+users/{uid}
+users/{uid}/groups/{groupId}
+users/{uid}/tasks/{taskId}
+users/{uid}/meta/local-storage-v1
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Task due dates are stored as `YYYY-MM-DD` calendar dates so they do not shift across time zones. Creation, update, and completion timestamps use Firestore server timestamps.
