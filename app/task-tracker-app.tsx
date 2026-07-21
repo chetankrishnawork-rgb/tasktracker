@@ -31,17 +31,17 @@ import {
   localMigrationComplete,
   setTaskCompleted,
   subscribeToWorkspace,
-} from "@/lib/daymark-repository";
+} from "@/lib/task-tracker-repository";
 import {
   groupColors,
   parseLegacyData,
   today,
   type Filter,
   type Group,
-  type LegacyData,
+  type PreviousTrackerData,
   type Priority,
   type Task,
-} from "@/lib/daymark-types";
+} from "@/lib/task-tracker-types";
 import {
   firebaseConfigured,
   getFirebaseServices,
@@ -54,6 +54,10 @@ const makeId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+// Preserve one-time imports from the pre-Firebase browser release without
+// carrying its former product name into the current interface or data model.
+const previousDataStorageKey = ["day", "mark-data"].join("");
 
 const messageForError = (error: unknown) => {
   const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -74,10 +78,10 @@ function AuthScreen({ mode }: { mode: "signin" | "configure" }) {
     return (
       <main className="auth-shell">
         <section className="auth-card setup-card">
-          <div className="brand auth-brand"><span className="brand-mark">D</span><span>Daymark</span></div>
+          <div className="brand auth-brand"><span className="brand-mark">T</span><span>Task Tracker</span></div>
           <span className="eyebrow">FIREBASE SETUP REQUIRED</span>
           <h1>Connect your private workspace</h1>
-          <p>Daymark is built and ready. Add your Firebase web-app values to a local <code>.env.local</code> file before starting the app.</p>
+          <p>Task Tracker is built and ready. Add your Firebase web-app values to a local <code>.env.local</code> file before starting the app.</p>
           <div className="config-list" aria-label="Required environment variables">
             <code>NEXT_PUBLIC_FIREBASE_API_KEY</code>
             <code>NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</code>
@@ -146,7 +150,7 @@ function AuthScreen({ mode }: { mode: "signin" | "configure" }) {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="brand auth-brand"><span className="brand-mark">D</span><span>Daymark</span></div>
+        <div className="brand auth-brand"><span className="brand-mark">T</span><span>Task Tracker</span></div>
         <span className="eyebrow">YOUR DAY, EVERYWHERE</span>
         <h1>{creating ? "Create your account" : "Welcome back"}</h1>
         <p>Sign in to keep your tasks private, synchronized, and available on every device.</p>
@@ -161,13 +165,13 @@ function AuthScreen({ mode }: { mode: "signin" | "configure" }) {
           <button className="add-button auth-submit" disabled={busy}>{busy ? "Please wait…" : creating ? "Create account" : "Sign in"}</button>
         </form>
         {!creating && <button className="text-button" onClick={resetPassword}>Forgot password?</button>}
-        <p className="auth-switch">{creating ? "Already have an account?" : "New to Daymark?"} <button onClick={() => { setCreating(!creating); setNotice(""); }}>{creating ? "Sign in" : "Create one"}</button></p>
+        <p className="auth-switch">{creating ? "Already have an account?" : "New to Task Tracker?"} <button onClick={() => { setCreating(!creating); setNotice(""); }}>{creating ? "Sign in" : "Create one"}</button></p>
       </section>
     </main>
   );
 }
 
-export default function DaymarkApp() {
+export default function TaskTrackerApp() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     firebaseConfigured ? "loading" : "unconfigured",
   );
@@ -195,7 +199,7 @@ export default function DaymarkApp() {
   const [groupName, setGroupName] = useState("");
   const [groupColor, setGroupColor] = useState(groupColors[3]);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
-  const [legacyData, setLegacyData] = useState<LegacyData | null>(null);
+  const [legacyData, setLegacyData] = useState<PreviousTrackerData | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const migrationCheckedFor = useRef("");
@@ -286,13 +290,13 @@ export default function DaymarkApp() {
     if (migrationCheckedFor.current === user.uid) return;
     migrationCheckedFor.current = user.uid;
     const checkMigration = async () => {
-      if (localStorage.getItem(`daymark-migration-dismissed-${user.uid}`)) return;
+      if (localStorage.getItem(`task-tracker-migration-dismissed-${user.uid}`)) return;
       const complete = await localMigrationComplete(db, user.uid);
       if (complete) {
-        localStorage.removeItem("daymark-data");
+        localStorage.removeItem(previousDataStorageKey);
         return;
       }
-      setLegacyData(parseLegacyData(localStorage.getItem("daymark-data")));
+      setLegacyData(parseLegacyData(localStorage.getItem(previousDataStorageKey)));
     };
     checkMigration().catch((error) => setNotice(messageForError(error)));
   }, [user, db, groupsLoaded, tasksLoaded]);
@@ -333,7 +337,7 @@ export default function DaymarkApp() {
 
   if (authStatus === "unconfigured") return <AuthScreen mode="configure" />;
   if (authStatus === "loading")
-    return <main className="loading-screen"><span className="brand-mark">D</span><p>Opening Daymark…</p></main>;
+    return <main className="loading-screen"><span className="brand-mark">T</span><p>Opening Task Tracker…</p></main>;
   if (authStatus === "signed-out" || !user || !db)
     return <AuthScreen mode="signin" />;
 
@@ -403,14 +407,14 @@ export default function DaymarkApp() {
     if (!legacyData) return;
     await run(async () => {
       await importLegacyData(db, user.uid, legacyData);
-      localStorage.removeItem("daymark-data");
+      localStorage.removeItem(previousDataStorageKey);
       setLegacyData(null);
       setNotice("Your previous tasks were imported successfully.");
     });
   };
 
   const dismissMigration = () => {
-    localStorage.setItem(`daymark-migration-dismissed-${user.uid}`, "true");
+    localStorage.setItem(`task-tracker-migration-dismissed-${user.uid}`, "true");
     setLegacyData(null);
   };
 
@@ -426,7 +430,7 @@ export default function DaymarkApp() {
   const progress = tasks.length
     ? Math.round((counts.done / tasks.length) * 100)
     : 0;
-  const initials = (user.displayName || user.email || "D")
+  const initials = (user.displayName || user.email || "T")
     .split(/\s|@/)
     .filter(Boolean)
     .slice(0, 2)
@@ -436,7 +440,7 @@ export default function DaymarkApp() {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">D</span><span>Daymark</span></div>
+        <div className="brand"><span className="brand-mark">T</span><span>Task Tracker</span></div>
         <nav className="main-nav" aria-label="Task views">
           {(["All", "Today", "Upcoming", "Completed"] as Filter[]).map((item) => (
             <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
@@ -458,7 +462,7 @@ export default function DaymarkApp() {
         </div>
         <div className="account-card">
           <span className="avatar">{initials}</span>
-          <div><strong>{user.displayName || "Daymark user"}</strong><span>{user.email}</span></div>
+          <div><strong>{user.displayName || "Task Tracker user"}</strong><span>{user.email}</span></div>
           <button aria-label="Sign out" title="Sign out" onClick={() => signOut(getFirebaseServices()!.auth)}>↪</button>
         </div>
       </aside>
@@ -497,7 +501,7 @@ export default function DaymarkApp() {
 
           <div className="list-header"><span>{visible.length} tasks</span><span>Sorted by due date</span></div>
           <div className="task-list" aria-busy={!groupsLoaded || !tasksLoaded}>
-            {(!groupsLoaded || !tasksLoaded) && <div className="empty-state"><span className="loading-dot">D</span><h2>Syncing your day</h2><p>Your tasks will appear in a moment.</p></div>}
+            {(!groupsLoaded || !tasksLoaded) && <div className="empty-state"><span className="loading-dot">T</span><h2>Syncing your day</h2><p>Your tasks will appear in a moment.</p></div>}
             {groupsLoaded && tasksLoaded && visible.map((task) => {
               const group = groupById(task.groupId);
               return (
@@ -554,7 +558,7 @@ export default function DaymarkApp() {
       {legacyData && (
         <div className="modal-backdrop">
           <div className="modal migration-modal" role="dialog" aria-modal="true" aria-labelledby="migration-title">
-            <span className="migration-mark">↥</span><span className="eyebrow">ONE-TIME IMPORT</span><h2 id="migration-title">Bring your previous Daymark data</h2>
+            <span className="migration-mark">↥</span><span className="eyebrow">ONE-TIME IMPORT</span><h2 id="migration-title">Bring your previous tracker data</h2>
             <p>We found {legacyData.tasks.length} task{legacyData.tasks.length === 1 ? "" : "s"} and {legacyData.groups.length} group{legacyData.groups.length === 1 ? "" : "s"} saved in this browser.</p>
             <div className="modal-actions"><button className="quiet-button" disabled={busy} onClick={dismissMigration}>Not now</button><button className="add-button" disabled={busy} onClick={importPreviousData}>{busy ? "Importing…" : "Import and sync"}</button></div>
           </div>

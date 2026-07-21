@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Daymark — Daily Task Tracker",
-    short_name: "Daymark",
+    name: "Task Tracker — Daily Tasks",
+    short_name: "Task Tracker",
     description: "A private, offline-ready daily task tracker.",
     start_url: "/",
     display: "standalone",

@@ -17,10 +17,10 @@ import {
 import {
   defaultGroups,
   type Group,
-  type LegacyData,
+  type PreviousTrackerData,
   type Priority,
   type Task,
-} from "./daymark-types";
+} from "./task-tracker-types";
 
 const toIso = (value: Timestamp | null | undefined) =>
   value?.toDate ? value.toDate().toISOString() : "";
@@ -196,7 +196,7 @@ export async function localMigrationComplete(
 export async function importLegacyData(
   db: Firestore,
   userId: string,
-  legacy: LegacyData,
+  legacy: PreviousTrackerData,
 ) {
   const operations = [
     ...legacy.groups.map((group) => ({ type: "group" as const, group })),

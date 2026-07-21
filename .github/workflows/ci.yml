@@ -1,4 +1,4 @@
-name: Daymark CI
+name: Task Tracker CI
 
 on:
   pull_request:

@@ -13,7 +13,7 @@ test("Firestore rules isolate each user's task data", async () => {
 });
 
 test("destructive actions require the confirmation dialog", async () => {
-  const app = await read("app/daymark-app.tsx");
+  const app = await read("app/task-tracker-app.tsx");
   assert.match(app, /role="alertdialog"/);
   assert.match(app, /Yes, delete/);
   assert.match(app, /setDeleteIds\(selected\)/);
@@ -24,11 +24,11 @@ test("the application includes PWA and migration support", async () => {
   const [manifest, worker, app] = await Promise.all([
     read("app/manifest.ts"),
     read("public/sw.js"),
-    read("app/daymark-app.tsx"),
+    read("app/task-tracker-app.tsx"),
   ]);
   assert.match(manifest, /display: "standalone"/);
   assert.match(manifest, /icon-maskable-512\.png/);
-  assert.match(worker, /daymark-shell-v1/);
+  assert.match(worker, /task-tracker-shell-v1/);
   assert.match(app, /Import and sync/);
   assert.match(app, /serviceWorker/);
 });

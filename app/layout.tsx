@@ -2,14 +2,14 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const title = "Daymark — Daily Task Tracker";
+const title = "Task Tracker — Plan your day";
 const description = "A private, offline-ready daily tracker for grouped and prioritized tasks.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title,
   description,
-  applicationName: "Daymark",
+  applicationName: "Task Tracker",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Daymark",
+    title: "Task Tracker",
   },
   openGraph: {
     title,
@@ -29,9 +29,9 @@ export const metadata: Metadata = {
     type: "website",
     images: [{
       url: "/og.png",
-      width: 1536,
-      height: 1024,
-      alt: "Daymark — Make space for what matters.",
+      width: 1200,
+      height: 630,
+      alt: "Task Tracker — Make space for what matters.",
     }],
   },
   twitter: {

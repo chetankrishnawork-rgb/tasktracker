@@ -1,5 +1,5 @@
-import DaymarkApp from "./daymark-app";
+import TaskTrackerApp from "./task-tracker-app";
 
 export default function Home() {
-  return <DaymarkApp />;
+  return <TaskTrackerApp />;
 }

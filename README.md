@@ -1,6 +1,6 @@
-# Daymark
+# Task Tracker
 
-Daymark is a private, offline-ready daily task tracker built with Next.js, Firebase Authentication, Cloud Firestore, and Progressive Web App capabilities.
+Task Tracker is a private, offline-ready daily task tracker built with Next.js, Firebase Authentication, Cloud Firestore, and Progressive Web App capabilities.
 
 ## Product capabilities
 
@@ -12,7 +12,7 @@ Daymark is a private, offline-ready daily task tracker built with Next.js, Fireb
 - Per-user data isolation
 - Realtime synchronization across devices
 - Offline reads and queued writes through Firestore persistence
-- One-time import of data from the original browser-only Daymark release
+- One-time import of data from the original browser-only tracker release
 - Installable phone and iPad PWA with safe-area and standalone-mode support
 
 ## Architecture
@@ -54,14 +54,16 @@ In the Firebase console:
    ```bash
    firebase login
    firebase use --add
-   firebase deploy --only firestore:rules,firestore:indexes
+   firebase deploy --only firestore
    ```
 
 Security rules are defined in `firestore.rules`. Do not replace them with an allow-all development rule.
 
 ## GitHub and Firebase App Hosting deployment
 
-1. Create a private GitHub repository.
+The complete guided checklist is in `DEPLOYMENT.md`.
+
+1. Create a private GitHub repository named `task-tracker`.
 2. Push this directory to the repository's `main` branch.
 3. In Firebase, open **App Hosting** and create a backend.
 4. Connect the GitHub repository and select `main` as the live branch.

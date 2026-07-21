@@ -18,7 +18,7 @@ export type Task = {
   createdAt: string;
 };
 
-export type LegacyData = {
+export type PreviousTrackerData = {
   groups: Group[];
   tasks: Task[];
 };
@@ -40,10 +40,10 @@ export const groupColors = [
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-export const parseLegacyData = (value: string | null): LegacyData | null => {
+export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(value) as Partial<LegacyData>;
+    const parsed = JSON.parse(value) as Partial<PreviousTrackerData>;
     const groups = Array.isArray(parsed.groups) ? parsed.groups : [];
     const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
     if (!groups.length && !tasks.length) return null;
