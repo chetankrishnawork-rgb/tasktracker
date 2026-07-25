@@ -25,6 +25,7 @@ import {
 import {
   createGroup,
   createTasks,
+  deleteGroup,
   deleteTasks,
   ensureWorkspace,
   importLegacyData,
@@ -199,6 +200,12 @@ export default function TaskTrackerApp() {
   const [groupName, setGroupName] = useState("");
   const [groupColor, setGroupColor] = useState(groupColors[3]);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const start = new Date();
+    start.setDate(1);
+    return start;
+  });
   const [legacyData, setLegacyData] = useState<PreviousTrackerData | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -403,6 +410,28 @@ export default function TaskTrackerApp() {
     });
   };
 
+  const remainingGroupsAfterDelete = groups.filter(
+    (group) => group.id !== deleteGroupId,
+  );
+  const groupPendingDeleteTaskCount = deleteGroupId
+    ? tasks.filter((task) => task.groupId === deleteGroupId).length
+    : 0;
+
+  const confirmDeleteGroup = async () => {
+    if (!deleteGroupId) return;
+    const fallbackGroupId = remainingGroupsAfterDelete[0]?.id;
+    if (!fallbackGroupId) return;
+    const affectedTaskIds = tasks
+      .filter((task) => task.groupId === deleteGroupId)
+      .map((task) => task.id);
+    await run(async () => {
+      await deleteGroup(db, user.uid, deleteGroupId, fallbackGroupId, affectedTaskIds);
+      if (groupFilter === deleteGroupId) setGroupFilter("all");
+      if (groupId === deleteGroupId) setGroupId(fallbackGroupId);
+      setDeleteGroupId(null);
+    });
+  };
+
   const importPreviousData = async () => {
     if (!legacyData) return;
     await run(async () => {
@@ -427,6 +456,46 @@ export default function TaskTrackerApp() {
     }).format(new Date(`${date}T12:00:00`));
   };
 
+  const toDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const monthLabel = new Intl.DateTimeFormat("en", {
+    month: "long",
+    year: "numeric",
+  }).format(monthCursor);
+  const firstWeekday = new Date(
+    monthCursor.getFullYear(),
+    monthCursor.getMonth(),
+    1,
+  ).getDay();
+  const daysInMonth = new Date(
+    monthCursor.getFullYear(),
+    monthCursor.getMonth() + 1,
+    0,
+  ).getDate();
+  const totalCalendarCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const calendarDates: (Date | null)[] = Array.from(
+    { length: totalCalendarCells },
+    (_, index) => {
+      const dayNumber = index - firstWeekday + 1;
+      return dayNumber >= 1 && dayNumber <= daysInMonth
+        ? new Date(monthCursor.getFullYear(), monthCursor.getMonth(), dayNumber)
+        : null;
+    },
+  );
+  const tasksByDate = new Map<string, Task[]>();
+  visible.forEach((task) => {
+    if (!task.dueDate) return;
+    const existing = tasksByDate.get(task.dueDate) ?? [];
+    existing.push(task);
+    tasksByDate.set(task.dueDate, existing);
+  });
+  const todayKey = toDateKey(new Date());
+
   const progress = tasks.length
     ? Math.round((counts.done / tasks.length) * 100)
     : 0;
@@ -442,11 +511,11 @@ export default function TaskTrackerApp() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">T</span><span>Task Tracker</span></div>
         <nav className="main-nav" aria-label="Task views">
-          {(["All", "Today", "Upcoming", "Completed"] as Filter[]).map((item) => (
+          {(["All", "Today", "Upcoming", "Completed", "Calendar"] as Filter[]).map((item) => (
             <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-              <span className="nav-icon">{item === "All" ? "⌗" : item === "Today" ? "◷" : item === "Upcoming" ? "↗" : "✓"}</span>
+              <span className="nav-icon">{item === "All" ? "⌗" : item === "Today" ? "◷" : item === "Upcoming" ? "↗" : item === "Completed" ? "✓" : "▦"}</span>
               <span className="nav-label">{item}</span>
-              <span className="nav-count">{item === "All" ? tasks.length : item === "Today" ? counts.today : item === "Completed" ? counts.done : tasks.filter((task) => !task.completed && task.dueDate > today()).length}</span>
+              {item !== "Calendar" && <span className="nav-count">{item === "All" ? tasks.length : item === "Today" ? counts.today : item === "Completed" ? counts.done : tasks.filter((task) => !task.completed && task.dueDate > today()).length}</span>}
             </button>
           ))}
         </nav>
@@ -454,10 +523,13 @@ export default function TaskTrackerApp() {
         <div className="group-list">
           <button className={groupFilter === "all" ? "group-active" : ""} onClick={() => setGroupFilter("all")}><span className="all-dot" />All groups</button>
           {groups.map((group) => (
-            <button key={group.id} className={groupFilter === group.id ? "group-active" : ""} onClick={() => setGroupFilter(group.id)}>
-              <span className="group-dot" style={{ background: group.color }} />{group.name}
-              <span className="nav-count">{tasks.filter((task) => task.groupId === group.id).length}</span>
-            </button>
+            <div className="group-row" key={group.id}>
+              <button className={`group-nav-button ${groupFilter === group.id ? "group-active" : ""}`} onClick={() => setGroupFilter(group.id)}>
+                <span className="group-dot" style={{ background: group.color }} />{group.name}
+                <span className="nav-count">{tasks.filter((task) => task.groupId === group.id).length}</span>
+              </button>
+              <button className="group-delete" aria-label={`Delete group ${group.name}`} title={`Delete ${group.name}`} onClick={() => setDeleteGroupId(group.id)}>×</button>
+            </div>
           ))}
         </div>
         <div className="account-card">
@@ -479,7 +551,12 @@ export default function TaskTrackerApp() {
 
         <div className="mobile-group-strip" aria-label="Filter by group">
           <button className={groupFilter === "all" ? "active" : ""} onClick={() => setGroupFilter("all")}>All</button>
-          {groups.map((group) => <button key={group.id} className={groupFilter === group.id ? "active" : ""} onClick={() => setGroupFilter(group.id)}><i style={{ background: group.color }} />{group.name}</button>)}
+          {groups.map((group) => (
+            <span className="mobile-chip" key={group.id}>
+              <button className={groupFilter === group.id ? "active" : ""} onClick={() => setGroupFilter(group.id)}><i style={{ background: group.color }} />{group.name}</button>
+              <button className="mobile-chip-delete" aria-label={`Delete group ${group.name}`} onClick={() => setDeleteGroupId(group.id)}>×</button>
+            </span>
+          ))}
           <button className="new-group-chip" onClick={() => setNewGroup(true)}>＋ Group</button>
         </div>
 
@@ -497,25 +574,74 @@ export default function TaskTrackerApp() {
           </div>
 
           {notice && <div className="notice-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss message">×</button></div>}
-          {selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
+          {filter !== "Calendar" && selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
 
-          <div className="list-header"><span>{visible.length} tasks</span><span>Sorted by due date</span></div>
-          <div className="task-list" aria-busy={!groupsLoaded || !tasksLoaded}>
-            {(!groupsLoaded || !tasksLoaded) && <div className="empty-state"><span className="loading-dot">T</span><h2>Syncing your day</h2><p>Your tasks will appear in a moment.</p></div>}
-            {groupsLoaded && tasksLoaded && visible.map((task) => {
-              const group = groupById(task.groupId);
-              return (
-                <article className={`task-row ${task.completed ? "completed" : ""}`} key={task.id} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
-                  <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
-                  <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? "✓" : ""}</button>
-                  <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
-                  <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
-                  <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}>×</button>
-                </article>
-              );
-            })}
-            {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span>✓</span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
-          </div>
+          {filter === "Calendar" ? (
+            <div className="calendar-view">
+              <div className="calendar-toolbar">
+                <button type="button" className="quiet-button" aria-label="Previous month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))}>‹</button>
+                <h2>{monthLabel}</h2>
+                <button type="button" className="quiet-button" aria-label="Next month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))}>›</button>
+                <button type="button" className="text-button calendar-today-button" onClick={() => { const now = new Date(); setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1)); }}>Today</button>
+              </div>
+              <div className="calendar-weekdays">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}
+              </div>
+              <div className="calendar-grid" aria-busy={!groupsLoaded || !tasksLoaded}>
+                {calendarDates.map((date, index) => {
+                  if (!date) return <div className="calendar-cell empty" key={`empty-${index}`} />;
+                  const dateKey = toDateKey(date);
+                  const dayTasks = tasksByDate.get(dateKey) ?? [];
+                  const visibleTasks = dayTasks.slice(0, 3);
+                  const overflow = dayTasks.length - visibleTasks.length;
+                  return (
+                    <div className={`calendar-cell ${dateKey === todayKey ? "is-today" : ""}`} key={dateKey}>
+                      <span className="calendar-date">{date.getDate()}</span>
+                      <div className="calendar-tasks">
+                        {visibleTasks.map((task) => {
+                          const group = groupById(task.groupId);
+                          return (
+                            <button
+                              type="button"
+                              key={task.id}
+                              className={`calendar-task ${task.completed ? "completed" : ""}`}
+                              style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}
+                              title={task.title}
+                              onClick={() => run(() => setTaskCompleted(db, user.uid, task))}
+                            >
+                              {task.title}
+                            </button>
+                          );
+                        })}
+                        {overflow > 0 && <span className="calendar-more">+{overflow} more</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span>✓</span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
+            </div>
+          ) : (
+            <>
+              <div className="list-header"><span>{visible.length} tasks</span><span>Sorted by due date</span></div>
+              <div className="task-list" aria-busy={!groupsLoaded || !tasksLoaded}>
+                {(!groupsLoaded || !tasksLoaded) && <div className="empty-state"><span className="loading-dot">T</span><h2>Syncing your day</h2><p>Your tasks will appear in a moment.</p></div>}
+                {groupsLoaded && tasksLoaded && visible.map((task) => {
+                  const group = groupById(task.groupId);
+                  return (
+                    <article className={`task-row ${task.completed ? "completed" : ""}`} key={task.id} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
+                      <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
+                      <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? "✓" : ""}</button>
+                      <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
+                      <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
+                      <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}>×</button>
+                    </article>
+                  );
+                })}
+                {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span>✓</span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -551,6 +677,31 @@ export default function TaskTrackerApp() {
             <div className="warning-mark">!</div><h2 id="delete-title">Delete {deleteIds.length === 1 ? "this task" : `${deleteIds.length} tasks`}?</h2>
             <p>This action can’t be undone. {deleteIds.length === 1 ? "The selected task" : "The selected tasks"} will be permanently removed from every synced device.</p>
             <div className="modal-actions"><button className="quiet-button" disabled={busy} onClick={() => setDeleteIds([])}>Keep {deleteIds.length === 1 ? "task" : "tasks"}</button><button className="danger-button" disabled={busy} onClick={confirmDelete}>{busy ? "Deleting…" : "Yes, delete"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {deleteGroupId && (
+        <div className="modal-backdrop">
+          <div className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-group-title">
+            <div className="warning-mark">!</div>
+            <h2 id="delete-group-title">Delete &ldquo;{groups.find((group) => group.id === deleteGroupId)?.name}&rdquo;?</h2>
+            {remainingGroupsAfterDelete.length === 0 ? (
+              <p>You need at least one group to keep using Task Tracker, so this one can&rsquo;t be deleted yet. Create another group first, then come back to remove this one.</p>
+            ) : (
+              <p>
+                This action can&rsquo;t be undone.
+                {groupPendingDeleteTaskCount > 0
+                  ? ` ${groupPendingDeleteTaskCount} task${groupPendingDeleteTaskCount === 1 ? "" : "s"} in this group will be moved to "${remainingGroupsAfterDelete[0].name}".`
+                  : ""}
+              </p>
+            )}
+            <div className="modal-actions">
+              <button className="quiet-button" disabled={busy} onClick={() => setDeleteGroupId(null)}>{remainingGroupsAfterDelete.length === 0 ? "Okay" : "Keep group"}</button>
+              {remainingGroupsAfterDelete.length > 0 && (
+                <button className="danger-button" disabled={busy} onClick={confirmDeleteGroup}>{busy ? "Deleting…" : "Yes, delete"}</button>
+              )}
+            </div>
           </div>
         </div>
       )}
