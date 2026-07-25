@@ -1,6 +1,7 @@
 import type { User } from "firebase/auth";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -130,6 +131,26 @@ export async function createGroup(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function deleteGroup(
+  db: Firestore,
+  userId: string,
+  groupId: string,
+  reassignToGroupId: string,
+  affectedTaskIds: string[],
+) {
+  for (let start = 0; start < affectedTaskIds.length; start += 400) {
+    const batch = writeBatch(db);
+    affectedTaskIds.slice(start, start + 400).forEach((taskId) => {
+      batch.update(doc(db, "users", userId, "tasks", taskId), {
+        groupId: reassignToGroupId,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+  await deleteDoc(doc(db, "users", userId, "groups", groupId));
 }
 
 export async function createTasks(

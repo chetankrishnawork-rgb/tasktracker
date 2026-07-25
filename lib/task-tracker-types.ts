@@ -1,5 +1,5 @@
 export type Priority = "High" | "Medium" | "Low";
-export type Filter = "All" | "Today" | "Upcoming" | "Completed";
+export type Filter = "All" | "Today" | "Upcoming" | "Completed" | "Calendar";
 
 export type Group = {
   id: string;
