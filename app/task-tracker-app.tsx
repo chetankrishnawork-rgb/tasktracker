@@ -221,6 +221,7 @@ export default function TaskTrackerApp() {
   const [groupColor, setGroupColor] = useState(groupColors[3]);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [monthCursor, setMonthCursor] = useState(() => {
     const start = new Date();
     start.setDate(1);
@@ -472,6 +473,13 @@ export default function TaskTrackerApp() {
     });
   };
 
+  const confirmSignOutAndClose = async () => {
+    await run(async () => {
+      await signOut(getFirebaseServices()!.auth);
+      setConfirmSignOut(false);
+    });
+  };
+
   const importPreviousData = async () => {
     if (!legacyData) return;
     await run(async () => {
@@ -575,7 +583,7 @@ export default function TaskTrackerApp() {
         <div className="account-card">
           <span className="avatar">{initials}</span>
           <div><strong>{user.displayName || "Task Tracker user"}</strong><span>{user.email}</span></div>
-          <button aria-label="Sign out" title="Sign out" onClick={() => signOut(getFirebaseServices()!.auth)}><IconLogOut /></button>
+          <button aria-label="Sign out" title="Sign out" onClick={() => setConfirmSignOut(true)}><IconLogOut /></button>
         </div>
       </aside>
 
@@ -752,6 +760,20 @@ export default function TaskTrackerApp() {
               {remainingGroupsAfterDelete.length > 0 && (
                 <button className="danger-button" disabled={busy} onClick={confirmDeleteGroup}>{busy ? "Deleting…" : "Yes, delete"}</button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmSignOut && (
+        <div className="modal-backdrop">
+          <div className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="signout-title">
+            <div className="warning-mark">!</div>
+            <h2 id="signout-title">Sign out of Task Tracker?</h2>
+            <p>You&rsquo;ll need to sign back in to see your tasks again on this device.</p>
+            <div className="modal-actions">
+              <button className="quiet-button" disabled={busy} onClick={() => setConfirmSignOut(false)}>Stay signed in</button>
+              <button className="danger-button" disabled={busy} onClick={confirmSignOutAndClose}>{busy ? "Signing out…" : "Yes, sign out"}</button>
             </div>
           </div>
         </div>
