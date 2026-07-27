@@ -1,5 +1,7 @@
 rules_version = '2';
 
+// Deployed automatically via .github/workflows/deploy-firestore-rules.yml
+// whenever this file changes on main.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(userId) {
