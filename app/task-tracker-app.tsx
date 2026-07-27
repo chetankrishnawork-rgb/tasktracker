@@ -32,12 +32,14 @@ import {
   importLegacyData,
   localMigrationComplete,
   setTaskCompleted,
+  setTaskSubtasks,
   subscribeToWorkspace,
 } from "@/lib/task-tracker-repository";
 import {
   generateRecurringDates,
   groupColors,
   parseLegacyData,
+  subtaskSummary,
   tasksToCsv,
   today,
   type Filter,
@@ -229,6 +231,8 @@ export default function TaskTrackerApp() {
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [monthCursor, setMonthCursor] = useState(() => {
     const start = new Date();
     start.setDate(1);
@@ -310,6 +314,7 @@ export default function TaskTrackerApp() {
         setDeleteIds([]);
         setDeleteGroupId(null);
         setConfirmSignOut(false);
+        setExpandedTaskId(null);
         return;
       }
 
@@ -565,6 +570,38 @@ export default function TaskTrackerApp() {
     URL.revokeObjectURL(url);
   };
 
+  const toggleSubtaskPanel = (taskId: string) => {
+    setExpandedTaskId((current) => (current === taskId ? null : taskId));
+    setNewSubtaskTitle("");
+  };
+
+  const addSubtask = async (task: Task) => {
+    const titleValue = newSubtaskTitle.trim();
+    if (!titleValue) return;
+    const nextSubtasks = [
+      ...task.subtasks,
+      { id: makeId(), title: titleValue, completed: false },
+    ];
+    await run(async () => {
+      await setTaskSubtasks(db, user.uid, task.id, nextSubtasks);
+      setNewSubtaskTitle("");
+    });
+  };
+
+  const toggleSubtask = async (task: Task, subtaskId: string) => {
+    const nextSubtasks = task.subtasks.map((subtask) =>
+      subtask.id === subtaskId
+        ? { ...subtask, completed: !subtask.completed }
+        : subtask,
+    );
+    await run(() => setTaskSubtasks(db, user.uid, task.id, nextSubtasks));
+  };
+
+  const deleteSubtask = async (task: Task, subtaskId: string) => {
+    const nextSubtasks = task.subtasks.filter((subtask) => subtask.id !== subtaskId);
+    await run(() => setTaskSubtasks(db, user.uid, task.id, nextSubtasks));
+  };
+
   const formatDate = (date: string) => {
     if (!date) return "No due date";
     if (date === today()) return "Due today";
@@ -749,14 +786,36 @@ export default function TaskTrackerApp() {
                 {(!groupsLoaded || !tasksLoaded) && <div className="empty-state"><span className="loading-dot">T</span><h2>Syncing your day</h2><p>Your tasks will appear in a moment.</p></div>}
                 {groupsLoaded && tasksLoaded && visible.map((task) => {
                   const group = groupById(task.groupId);
+                  const summary = subtaskSummary(task);
+                  const expanded = expandedTaskId === task.id;
                   return (
-                    <article className={`task-row ${task.completed ? "completed" : ""}`} key={task.id} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
-                      <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
-                      <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? <IconCheck /> : null}</button>
-                      <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
-                      <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
-                      <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}><IconX /></button>
-                    </article>
+                    <div className="task-row-group" key={task.id}>
+                      <article className={`task-row ${task.completed ? "completed" : ""}`} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
+                        <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
+                        <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? <IconCheck /> : null}</button>
+                        <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
+                        <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
+                        <button type="button" className={`subtask-chip ${expanded ? "expanded" : ""} ${summary.total > 0 && summary.done === summary.total ? "all-done" : ""}`} aria-label={summary.total ? `${summary.done} of ${summary.total} subtasks done, toggle checklist` : "Add subtasks"} title={summary.total ? `${summary.done}/${summary.total} subtasks` : "Add subtasks"} onClick={() => toggleSubtaskPanel(task.id)}>
+                          {summary.total > 0 ? `${summary.done}/${summary.total}` : <IconPlus />}
+                        </button>
+                        <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}><IconX /></button>
+                      </article>
+                      {expanded && (
+                        <div className="subtask-panel">
+                          {task.subtasks.map((subtask) => (
+                            <div className="subtask-row" key={subtask.id}>
+                              <button type="button" className={`subtask-check ${subtask.completed ? "completed" : ""}`} disabled={busy} aria-label={subtask.completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`} onClick={() => toggleSubtask(task, subtask.id)}>{subtask.completed ? <IconCheck /> : null}</button>
+                              <span className={subtask.completed ? "subtask-done-text" : ""}>{subtask.title}</span>
+                              <button type="button" className="subtask-delete" disabled={busy} aria-label={`Delete subtask ${subtask.title}`} onClick={() => deleteSubtask(task, subtask.id)}><IconX /></button>
+                            </div>
+                          ))}
+                          <form className="subtask-add-row" onSubmit={(event) => { event.preventDefault(); addSubtask(task); }}>
+                            <input value={newSubtaskTitle} onChange={(event) => setNewSubtaskTitle(event.target.value)} placeholder="Add subtask" disabled={busy || task.subtasks.length >= 50} />
+                            <button type="submit" aria-label="Add subtask" disabled={busy || !newSubtaskTitle.trim() || task.subtasks.length >= 50}><IconPlus /></button>
+                          </form>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
                 {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span><IconCheck /></span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
