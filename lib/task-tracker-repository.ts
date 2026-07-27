@@ -59,6 +59,7 @@ const mapTasks = (snapshot: QuerySnapshot<DocumentData>): Task[] =>
       completedAt: data.completedAt ? toIso(data.completedAt) : null,
       createdAt: toIso(data.createdAt),
       subtasks: mapSubtasks(data.subtasks),
+      seriesId: data.seriesId ? String(data.seriesId) : null,
     };
   });
 
@@ -193,13 +194,16 @@ export async function createTasks(
 }
 
 // Creates one task per date for a recurring task series (e.g. every workday
-// in a date range), all sharing the same title, group, and priority.
+// in a date range), all sharing the same title, group, priority, and a
+// generated seriesId so the whole set can later be bulk-edited or deleted
+// together via updateSeriesTasks / deleteTasks.
 export async function createRecurringTasks(
   db: Firestore,
   userId: string,
   title: string,
   details: { groupId: string; priority: Priority; dates: string[] },
 ) {
+  const seriesId = doc(collection(db, "users", userId, "tasks")).id;
   for (let start = 0; start < details.dates.length; start += 400) {
     const batch = writeBatch(db);
     details.dates.slice(start, start + 400).forEach((dueDate) => {
@@ -211,6 +215,7 @@ export async function createRecurringTasks(
         dueDate,
         completed: false,
         completedAt: null,
+        seriesId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -244,6 +249,28 @@ export async function setTaskSubtasks(
     subtasks,
     updatedAt: serverTimestamp(),
   });
+}
+
+// Bulk-updates title/group/priority across a set of task ids — used for
+// "edit this series" so every upcoming occurrence changes together.
+export async function updateSeriesTasks(
+  db: Firestore,
+  userId: string,
+  taskIds: string[],
+  updates: { title: string; groupId: string; priority: Priority },
+) {
+  for (let start = 0; start < taskIds.length; start += 400) {
+    const batch = writeBatch(db);
+    taskIds.slice(start, start + 400).forEach((taskId) => {
+      batch.update(doc(db, "users", userId, "tasks", taskId), {
+        title: updates.title,
+        groupId: updates.groupId,
+        priority: updates.priority,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
 }
 
 export async function deleteTasks(
