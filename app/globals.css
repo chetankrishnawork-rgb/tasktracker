@@ -10,7 +10,7 @@
 
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--paper); }
-body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; transition: background .15s ease, color .15s ease; }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; touch-action: manipulation; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgba(52, 77, 61, .22); outline-offset: 2px; }
@@ -76,6 +76,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .add-button:hover { background: #263c2f; }
 .bulk-button, .quiet-button { background: transparent; border-color: #cbc9bf; }
 .bulk-button:hover, .quiet-button:hover { background: #e8e5db; }
+.icon-button { width: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; }
 button:disabled { opacity: .58; cursor: progress; }
 .mobile-group-strip { display: none; }
 .content { max-width: 1040px; margin: 0 auto; padding: 50px 44px 90px; }
@@ -259,4 +260,73 @@ button:disabled { opacity: .58; cursor: progress; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}
+
+/* Dark theme — toggled via data-theme="dark" on <html>, set from JS in
+   app/task-tracker-app.tsx (persisted to localStorage, defaults to the
+   system prefers-color-scheme on first visit). */
+[data-theme="dark"] {
+  --ink: #e7e5da;
+  --muted: #9a9c8e;
+  --line: #34362d;
+  --paper: #16170f;
+  --cream: #1e1f18;
+  --green: #7ea787;
+  --red: #d98a73;
+}
+[data-theme="dark"] .sidebar { background: #1b1c15; border-right-color: var(--line); }
+[data-theme="dark"] .main-nav button, [data-theme="dark"] .group-list button { color: #a7a99a; }
+[data-theme="dark"] .main-nav button:hover, [data-theme="dark"] .group-list button:hover,
+[data-theme="dark"] .main-nav button.active, [data-theme="dark"] .group-list button.group-active { background: #262820; color: var(--ink); }
+[data-theme="dark"] .group-heading { color: #9a9c8e; }
+[data-theme="dark"] .group-heading button:hover { background: #262820; }
+[data-theme="dark"] .group-delete:hover { background: #3a2621; }
+[data-theme="dark"] .account-card { border-top-color: var(--line); }
+[data-theme="dark"] .account-card button:hover { background: #262820; }
+[data-theme="dark"] .topbar { background: rgba(22,23,15,.92); border-bottom-color: var(--line); }
+[data-theme="dark"] .search { color: #9a9c8e; }
+[data-theme="dark"] .bulk-button, [data-theme="dark"] .quiet-button { border-color: #40423786; }
+[data-theme="dark"] .bulk-button:hover, [data-theme="dark"] .quiet-button:hover { background: #262820; }
+[data-theme="dark"] .progress-ring { background: conic-gradient(var(--green) var(--progress), #2c2e25 0); }
+[data-theme="dark"] .notice-banner { background: #232419; color: #c6c8b8; border-color: var(--line); }
+[data-theme="dark"] .selection-bar { background: #232419; border-color: var(--line); }
+[data-theme="dark"] .task-list { border-top-color: var(--line); }
+[data-theme="dark"] .task-row:hover { background: rgba(255,255,255,.04); }
+[data-theme="dark"] .completed .task-main h2 { color: #7d7f72; }
+[data-theme="dark"] .task-meta, [data-theme="dark"] .group-tag { color: #9a9c8e; }
+[data-theme="dark"] .complete-box { border-color: #52544a; }
+[data-theme="dark"] .priority.high { color: #e6a68f; border-color: #5c372c; background: #33221d; }
+[data-theme="dark"] .priority.medium { color: #e3c383; border-color: #5a481f; background: #302915; }
+[data-theme="dark"] .priority.low { color: #a9bda9; border-color: #3b4a3a; background: #1f2620; }
+[data-theme="dark"] .row-delete:hover { background: #3a2621; }
+[data-theme="dark"] .empty-state > span { border-color: #43453b; }
+[data-theme="dark"] .calendar-cell { background: rgba(255,255,255,.03); }
+[data-theme="dark"] .calendar-task { background: color-mix(in srgb, var(--group-color) 30%, #1b1c15); }
+[data-theme="dark"] .modal-backdrop { background: rgba(0,0,0,.6); }
+[data-theme="dark"] .modal { background: #1e1f18; box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+[data-theme="dark"] .modal-head > button { color: #9a9c8e; }
+[data-theme="dark"] .modal label { color: #b9bbad; }
+[data-theme="dark"] .label-hint { color: #77786b; }
+[data-theme="dark"] .modal input, [data-theme="dark"] .modal select, [data-theme="dark"] .modal textarea { background: #16170f; border-color: #40423786; color: var(--ink); }
+[data-theme="dark"] .checkbox-row { color: #b9bbad; }
+[data-theme="dark"] .color-row button.color-selected { border-color: #1e1f18; outline-color: var(--ink); }
+[data-theme="dark"] .warning-mark { background: #3a2621; }
+[data-theme="dark"] .migration-mark { background: #1f2a1e; }
+[data-theme="dark"] .confirm-modal p, [data-theme="dark"] .migration-modal p { color: #9a9c8e; }
+[data-theme="dark"] .danger-button:hover { background: #7a3226; }
+[data-theme="dark"] .auth-shell, [data-theme="dark"] .loading-screen { background: radial-gradient(circle at 30% 20%, #202117, var(--paper) 55%); }
+[data-theme="dark"] .auth-card { background: rgba(26,27,20,.94); border-color: var(--line); }
+[data-theme="dark"] .auth-card > p, [data-theme="dark"] .loading-screen { color: #9a9c8e; }
+[data-theme="dark"] .divider { border-top-color: var(--line); }
+[data-theme="dark"] .divider span { background: #1e1f18; color: #77786b; }
+[data-theme="dark"] .auth-card form label { color: #b9bbad; }
+[data-theme="dark"] .auth-card form input { background: #16170f; border-color: #40423786; color: var(--ink); }
+[data-theme="dark"] .auth-notice { background: #232419; color: #c6c8b8; }
+[data-theme="dark"] .config-list code { background: #232419; color: #b9bbad; }
+[data-theme="dark"] .mobile-group-strip button { border-color: #40423786; color: #a7a99a; }
+[data-theme="dark"] .mobile-group-strip button.active { background: #262820; color: var(--ink); border-color: #40423786; }
+[data-theme="dark"] .mobile-chip-delete:active { background: #3a2621; }
+@media (max-width: 700px) {
+  [data-theme="dark"] .main-nav { background: rgba(22,23,15,.97); border-top-color: var(--line); }
+  [data-theme="dark"] .modal-actions { background: #1e1f18; border-top-color: var(--line); }
 }

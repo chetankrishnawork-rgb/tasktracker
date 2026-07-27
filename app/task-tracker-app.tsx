@@ -38,6 +38,7 @@ import {
   generateRecurringDates,
   groupColors,
   parseLegacyData,
+  tasksToCsv,
   today,
   type Filter,
   type Group,
@@ -56,17 +57,21 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClock,
+  IconDownload,
   IconHash,
   IconLogOut,
+  IconMoon,
   IconPlus,
   IconRepeat,
   IconSearch,
+  IconSun,
   IconUpload,
   IconX,
 } from "@/lib/icons";
 
 type AuthStatus = "loading" | "signed-out" | "signed-in" | "unconfigured";
 type Composer = "single" | "bulk" | "recurring" | null;
+type Theme = "light" | "dark";
 
 const makeId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -76,6 +81,7 @@ const makeId = () =>
 // Preserve one-time imports from the pre-Firebase browser release without
 // carrying its former product name into the current interface or data model.
 const previousDataStorageKey = ["day", "mark-data"].join("");
+const themeStorageKey = "task-tracker-theme";
 
 const messageForError = (error: unknown) => {
   const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -203,6 +209,7 @@ export default function TaskTrackerApp() {
   const [tasksPending, setTasksPending] = useState(false);
   const [usingCache, setUsingCache] = useState(false);
   const [online, setOnline] = useState(true);
+  const [theme, setTheme] = useState<Theme>("light");
   const [filter, setFilter] = useState<Filter>("All");
   const [groupFilter, setGroupFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -231,6 +238,7 @@ export default function TaskTrackerApp() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const migrationCheckedFor = useRef("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!firebaseConfigured) return;
@@ -269,6 +277,55 @@ export default function TaskTrackerApp() {
       window.removeEventListener("offline", updateConnection);
     };
   }, []);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(themeStorageKey);
+    if (stored === "light" || stored === "dark") {
+      setTheme(stored);
+    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setTheme("dark");
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(themeStorageKey, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (authStatus !== "signed-in") return;
+      const targetElement = event.target as HTMLElement | null;
+      const isTyping = Boolean(
+        targetElement &&
+          (targetElement.tagName === "INPUT" ||
+            targetElement.tagName === "TEXTAREA" ||
+            targetElement.tagName === "SELECT" ||
+            targetElement.isContentEditable),
+      );
+
+      if (event.key === "Escape") {
+        setComposer(null);
+        setNewGroup(false);
+        setDeleteIds([]);
+        setDeleteGroupId(null);
+        setConfirmSignOut(false);
+        return;
+      }
+
+      if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (event.key === "/") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        setComposer("single");
+      }
+    };
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [authStatus]);
 
   useEffect(() => {
     if (!user || !db) return;
@@ -495,6 +552,19 @@ export default function TaskTrackerApp() {
     setLegacyData(null);
   };
 
+  const exportTasksAsCsv = () => {
+    const csv = tasksToCsv(tasks, groups);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `task-tracker-export-${today()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const formatDate = (date: string) => {
     if (!date) return "No due date";
     if (date === today()) return "Due today";
@@ -589,9 +659,11 @@ export default function TaskTrackerApp() {
 
       <section className="workspace">
         <header className="topbar">
-          <label className="search"><span><IconSearch /></span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" /></label>
+          <label className="search"><span><IconSearch /></span><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" title="Press / to search" /></label>
           <div className="sync-state" data-online={online}><i />{syncText}</div>
           <div className="top-actions">
+            <button className="quiet-button icon-button" aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>{theme === "dark" ? <IconSun /> : <IconMoon />}</button>
+            <button className="quiet-button icon-button" aria-label="Export tasks as CSV" title="Export CSV" onClick={exportTasksAsCsv}><IconDownload /></button>
             <button className="bulk-button" onClick={() => setComposer("recurring")}><IconRepeat /> <span>Repeating</span></button>
             <button className="bulk-button" onClick={() => setComposer("bulk")}><IconPlus /> <span>Bulk add</span></button>
             <button className="add-button" onClick={() => setComposer("single")}><IconPlus /> Add task</button>
