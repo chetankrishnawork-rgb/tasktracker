@@ -1,6 +1,6 @@
 {
   "projects": {
-    "production": "tasktracker-bc6b2"
+    "production": "ttrack-app"
   },
   "targets": {},
   "etags": {}
