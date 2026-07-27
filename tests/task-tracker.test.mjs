@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { generateRecurringDates, tasksToCsv } from "../lib/task-tracker-types.ts";
+import { generateRecurringDates, subtaskSummary, tasksToCsv } from "../lib/task-tracker-types.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -11,6 +11,11 @@ test("Firestore rules isolate each user's task data", async () => {
   assert.match(rules, /match \/tasks\/\{taskId\}/);
   assert.match(rules, /validTask\(\)/);
   assert.doesNotMatch(rules, /allow read, write:\s*if true/);
+});
+
+test("firestore rules bound the optional subtasks field", async () => {
+  const rules = await read("firestore.rules");
+  assert.match(rules, /subtasks\.size\(\) <= 50/);
 });
 
 test("destructive actions require the confirmation dialog", async () => {
@@ -91,6 +96,7 @@ test("tasksToCsv: resolves group names and formats rows", () => {
       completed: false,
       completedAt: null,
       createdAt: "2026-07-01T00:00:00.000Z",
+      subtasks: [],
     },
   ];
   const csv = tasksToCsv(tasks, groups);
@@ -111,6 +117,7 @@ test("tasksToCsv: escapes commas, quotes, and newlines", () => {
       completed: true,
       completedAt: "2026-07-27T00:00:00.000Z",
       createdAt: "2026-07-01T00:00:00.000Z",
+      subtasks: [],
     },
   ];
   const csv = tasksToCsv(tasks, groups);
@@ -129,9 +136,48 @@ test("tasksToCsv: falls back to the raw id when a group no longer exists", () =>
         completed: false,
         completedAt: null,
         createdAt: "2026-07-01T00:00:00.000Z",
+        subtasks: [],
       },
     ],
     [],
   );
   assert.match(csv, /Orphaned task,deleted-group,Medium/);
+});
+
+const baseTask = {
+  id: "1",
+  title: "Task",
+  groupId: "work",
+  priority: "Medium",
+  dueDate: "",
+  completed: false,
+  completedAt: null,
+  createdAt: "2026-07-01T00:00:00.000Z",
+};
+
+test("subtaskSummary: counts done vs total", () => {
+  const task = {
+    ...baseTask,
+    subtasks: [
+      { id: "a", title: "One", completed: true },
+      { id: "b", title: "Two", completed: false },
+      { id: "c", title: "Three", completed: true },
+    ],
+  };
+  assert.deepEqual(subtaskSummary(task), { done: 2, total: 3 });
+});
+
+test("subtaskSummary: zero subtasks returns zero/zero", () => {
+  assert.deepEqual(subtaskSummary({ ...baseTask, subtasks: [] }), { done: 0, total: 0 });
+});
+
+test("subtaskSummary: all completed", () => {
+  const task = {
+    ...baseTask,
+    subtasks: [
+      { id: "a", title: "One", completed: true },
+      { id: "b", title: "Two", completed: true },
+    ],
+  };
+  assert.deepEqual(subtaskSummary(task), { done: 2, total: 2 });
 });

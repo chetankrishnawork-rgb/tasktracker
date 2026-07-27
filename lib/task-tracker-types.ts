@@ -7,6 +7,12 @@ export type Group = {
   color: string;
 };
 
+export type Subtask = {
+  id: string;
+  title: string;
+  completed: boolean;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -16,6 +22,7 @@ export type Task = {
   completed: boolean;
   completedAt: string | null;
   createdAt: string;
+  subtasks: Subtask[];
 };
 
 export type PreviousTrackerData = {
@@ -106,6 +113,13 @@ export const tasksToCsv = (tasks: Task[], groups: Group[]): string => {
     .map((row) => row.map((cell) => escapeCsvField(String(cell))).join(","))
     .join("\r\n");
 };
+
+// Completed/total counts for a task's subtasks, used to render progress
+// chips like "2/5" without every call site re-deriving it.
+export const subtaskSummary = (task: Task): { done: number; total: number } => ({
+  done: task.subtasks.filter((subtask) => subtask.completed).length,
+  total: task.subtasks.length,
+});
 
 export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
