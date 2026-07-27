@@ -69,6 +69,44 @@ export const generateRecurringDates = (
   return dates;
 };
 
+// Escapes a single CSV field per RFC 4180: wrap in quotes and double up any
+// quotes whenever the value contains a comma, quote, or newline.
+const escapeCsvField = (value: string): string => {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+};
+
+// Renders tasks (with their group names resolved) as a CSV string, ready to
+// hand to a Blob for client-side download. Pure and dependency-free so it's
+// easy to unit test independent of the DOM/Firestore.
+export const tasksToCsv = (tasks: Task[], groups: Group[]): string => {
+  const groupNameById = (groupId: string) =>
+    groups.find((group) => group.id === groupId)?.name ?? groupId;
+
+  const header = [
+    "Title",
+    "Group",
+    "Priority",
+    "Due date",
+    "Completed",
+    "Completed at",
+  ];
+  const rows = tasks.map((task) => [
+    task.title,
+    groupNameById(task.groupId),
+    task.priority,
+    task.dueDate,
+    task.completed ? "Yes" : "No",
+    task.completedAt ?? "",
+  ]);
+
+  return [header, ...rows]
+    .map((row) => row.map((cell) => escapeCsvField(String(cell))).join(","))
+    .join("\r\n");
+};
+
 export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
   try {
