@@ -32,7 +32,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .all-dot { border: 1.5px solid #72746b; }
 .group-row { position: relative; display: flex; align-items: center; }
 .group-row .group-nav-button { flex: 1; min-width: 0; padding-right: 30px; }
-.group-delete { position: absolute; right: 3px; width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--red); font-size: 15px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .15s ease, background .15s ease; cursor: pointer; }
+.group-row .group-delete { position: absolute; right: 3px; width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--red); font-size: 15px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .15s ease, background .15s ease; cursor: pointer; }
 .group-row:hover .group-delete, .group-delete:focus-visible { opacity: 1; pointer-events: auto; }
 .group-delete:hover { background: #e6d6d1; }
 
