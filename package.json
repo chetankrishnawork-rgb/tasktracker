@@ -10,7 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --import tsx --test tests/*.test.mjs",
+    "test": "tsx --test tests/*.test.mjs",
     "lint": "eslint app lib next.config.ts"
   },
   "dependencies": {
