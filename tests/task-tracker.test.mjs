@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { generateRecurringDates, subtaskSummary, tasksToCsv } from "../lib/task-tracker-types.ts";
+import { generateRecurringDates, seriesTaskIds, subtaskSummary, tasksToCsv } from "../lib/task-tracker-types.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -16,6 +16,11 @@ test("Firestore rules isolate each user's task data", async () => {
 test("firestore rules bound the optional subtasks field", async () => {
   const rules = await read("firestore.rules");
   assert.match(rules, /subtasks\.size\(\) <= 50/);
+});
+
+test("firestore rules allow an optional seriesId field", async () => {
+  const rules = await read("firestore.rules");
+  assert.match(rules, /seriesId/);
 });
 
 test("destructive actions require the confirmation dialog", async () => {
@@ -180,4 +185,29 @@ test("subtaskSummary: all completed", () => {
     ],
   };
   assert.deepEqual(subtaskSummary(task), { done: 2, total: 2 });
+});
+
+const seriesTask = (overrides) => ({
+  ...baseTask,
+  subtasks: [],
+  seriesId: null,
+  ...overrides,
+});
+
+test("seriesTaskIds: only returns tasks in the same series on/after fromDate", () => {
+  const tasks = [
+    seriesTask({ id: "past", seriesId: "s1", dueDate: "2026-07-01" }),
+    seriesTask({ id: "today", seriesId: "s1", dueDate: "2026-07-27" }),
+    seriesTask({ id: "future", seriesId: "s1", dueDate: "2026-08-01" }),
+    seriesTask({ id: "other-series", seriesId: "s2", dueDate: "2026-08-01" }),
+    seriesTask({ id: "no-series", seriesId: null, dueDate: "2026-08-01" }),
+  ];
+  const ids = seriesTaskIds(tasks, "s1", "2026-07-27");
+  assert.deepEqual(ids.sort(), ["future", "today"]);
+});
+
+test("seriesTaskIds: returns an empty array when no tasks match", () => {
+  const tasks = [seriesTask({ id: "a", seriesId: "s1", dueDate: "2026-07-01" })];
+  assert.deepEqual(seriesTaskIds(tasks, "s1", "2026-07-27"), []);
+  assert.deepEqual(seriesTaskIds(tasks, "does-not-exist", "2026-01-01"), []);
 });
