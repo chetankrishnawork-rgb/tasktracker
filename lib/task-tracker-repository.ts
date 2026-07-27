@@ -178,6 +178,33 @@ export async function createTasks(
   }
 }
 
+// Creates one task per date for a recurring task series (e.g. every workday
+// in a date range), all sharing the same title, group, and priority.
+export async function createRecurringTasks(
+  db: Firestore,
+  userId: string,
+  title: string,
+  details: { groupId: string; priority: Priority; dates: string[] },
+) {
+  for (let start = 0; start < details.dates.length; start += 400) {
+    const batch = writeBatch(db);
+    details.dates.slice(start, start + 400).forEach((dueDate) => {
+      const taskRef = doc(collection(db, "users", userId, "tasks"));
+      batch.set(taskRef, {
+        title,
+        groupId: details.groupId,
+        priority: details.priority,
+        dueDate,
+        completed: false,
+        completedAt: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+}
+
 export async function setTaskCompleted(
   db: Firestore,
   userId: string,

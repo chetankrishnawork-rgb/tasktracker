@@ -40,6 +40,35 @@ export const groupColors = [
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
+// Builds the list of due dates (YYYY-MM-DD) for a recurring task, one entry
+// per workday in the range by default, optionally including weekends.
+export const generateRecurringDates = (
+  startDate: string,
+  endDate: string,
+  includeWeekends: boolean,
+): string[] => {
+  if (!startDate || !endDate) return [];
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    return [];
+  }
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const weekday = cursor.getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+    if (includeWeekends || !isWeekend) {
+      const year = cursor.getFullYear();
+      const month = String(cursor.getMonth() + 1).padStart(2, "0");
+      const day = String(cursor.getDate()).padStart(2, "0");
+      dates.push(`${year}-${month}-${day}`);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+};
+
 export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
   try {

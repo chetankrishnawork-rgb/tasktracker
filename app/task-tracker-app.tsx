@@ -24,6 +24,7 @@ import {
 } from "react";
 import {
   createGroup,
+  createRecurringTasks,
   createTasks,
   deleteGroup,
   deleteTasks,
@@ -34,6 +35,7 @@ import {
   subscribeToWorkspace,
 } from "@/lib/task-tracker-repository";
 import {
+  generateRecurringDates,
   groupColors,
   parseLegacyData,
   today,
@@ -49,7 +51,7 @@ import {
 } from "@/lib/firebase";
 
 type AuthStatus = "loading" | "signed-out" | "signed-in" | "unconfigured";
-type Composer = "single" | "bulk" | null;
+type Composer = "single" | "bulk" | "recurring" | null;
 
 const makeId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -196,6 +198,9 @@ export default function TaskTrackerApp() {
   const [groupId, setGroupId] = useState("work");
   const [priority, setPriority] = useState<Priority>("Medium");
   const [dueDate, setDueDate] = useState(today());
+  const [recurringStart, setRecurringStart] = useState(today());
+  const [recurringEnd, setRecurringEnd] = useState(today());
+  const [includeWeekends, setIncludeWeekends] = useState(false);
   const [newGroup, setNewGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [groupColor, setGroupColor] = useState(groupColors[3]);
@@ -342,6 +347,11 @@ export default function TaskTrackerApp() {
     [tasks, groupFilter, query, filter],
   );
 
+  const recurringDates = useMemo(
+    () => generateRecurringDates(recurringStart, recurringEnd, includeWeekends),
+    [recurringStart, recurringEnd, includeWeekends],
+  );
+
   if (authStatus === "unconfigured") return <AuthScreen mode="configure" />;
   if (authStatus === "loading")
     return <main className="loading-screen"><span className="brand-mark">T</span><p>Opening Task Tracker…</p></main>;
@@ -374,10 +384,25 @@ export default function TaskTrackerApp() {
     setComposer(null);
     setTitle("");
     setBulkTitles("");
+    setRecurringStart(today());
+    setRecurringEnd(today());
+    setIncludeWeekends(false);
   };
 
   const addTaskRecords = async (event: FormEvent) => {
     event.preventDefault();
+    if (composer === "recurring") {
+      if (!title.trim() || !groupId || !recurringDates.length) return;
+      await run(async () => {
+        await createRecurringTasks(db, user.uid, title.trim(), {
+          groupId,
+          priority,
+          dates: recurringDates,
+        });
+        resetComposer();
+      });
+      return;
+    }
     const titles = composer === "bulk"
       ? bulkTitles.split("\n").map((item) => item.trim()).filter(Boolean)
       : [title.trim()].filter(Boolean);
@@ -544,6 +569,7 @@ export default function TaskTrackerApp() {
           <label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" /></label>
           <div className="sync-state" data-online={online}><i />{syncText}</div>
           <div className="top-actions">
+            <button className="bulk-button" onClick={() => setComposer("recurring")}>↻ <span>Repeating</span></button>
             <button className="bulk-button" onClick={() => setComposer("bulk")}>＋ <span>Bulk add</span></button>
             <button className="add-button" onClick={() => setComposer("single")}>＋ Add task</button>
           </div>
@@ -648,14 +674,24 @@ export default function TaskTrackerApp() {
       {composer && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && resetComposer()}>
           <form className="modal" onSubmit={addTaskRecords}>
-            <div className="modal-head"><div><span className="eyebrow">{composer === "bulk" ? "QUICK CAPTURE" : "NEW TASK"}</span><h2>{composer === "bulk" ? "Add multiple tasks" : "Add a task"}</h2></div><button type="button" onClick={resetComposer} aria-label="Close">×</button></div>
+            <div className="modal-head"><div><span className="eyebrow">{composer === "bulk" ? "QUICK CAPTURE" : composer === "recurring" ? "REPEATING TASK" : "NEW TASK"}</span><h2>{composer === "bulk" ? "Add multiple tasks" : composer === "recurring" ? "Add a repeating task" : "Add a task"}</h2></div><button type="button" onClick={resetComposer} aria-label="Close">×</button></div>
             {composer === "bulk" ? <label>Tasks <span className="label-hint">One per line</span><textarea autoFocus value={bulkTitles} onChange={(event) => setBulkTitles(event.target.value)} placeholder={"Prepare slides\nSend weekly update\nSchedule review"} required /></label> : <label>Task name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What needs to be done?" required /></label>}
-            <div className="form-grid">
+            <div className={`form-grid${composer === "recurring" ? " two-col" : ""}`}>
               <label>Group<select value={groupId} onChange={(event) => setGroupId(event.target.value)}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
               <label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value as Priority)}><option>High</option><option>Medium</option><option>Low</option></select></label>
-              <label>Due date<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
+              {composer !== "recurring" && <label>Due date<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>}
             </div>
-            <div className="modal-actions"><button type="button" className="quiet-button" onClick={resetComposer}>Cancel</button><button className="add-button" disabled={busy}>{busy ? "Saving…" : composer === "bulk" ? "Add tasks" : "Add task"}</button></div>
+            {composer === "recurring" && (
+              <>
+                <div className="form-grid two-col">
+                  <label>Start date<input type="date" value={recurringStart} onChange={(event) => setRecurringStart(event.target.value)} required /></label>
+                  <label>End date<input type="date" value={recurringEnd} min={recurringStart} onChange={(event) => setRecurringEnd(event.target.value)} required /></label>
+                </div>
+                <label className="checkbox-row"><input type="checkbox" checked={includeWeekends} onChange={(event) => setIncludeWeekends(event.target.checked)} /> Include weekends</label>
+                <p className="label-hint recurring-count">{recurringDates.length ? `${recurringDates.length} task${recurringDates.length === 1 ? "" : "s"} will be created` : "Pick a date range to see how many tasks will be created"}</p>
+              </>
+            )}
+            <div className="modal-actions"><button type="button" className="quiet-button" onClick={resetComposer}>Cancel</button><button className="add-button" disabled={busy || (composer === "recurring" && !recurringDates.length)}>{busy ? "Saving…" : composer === "bulk" ? "Add tasks" : composer === "recurring" ? "Add repeating task" : "Add task"}</button></div>
           </form>
         </div>
       )}
