@@ -23,6 +23,7 @@ export type Task = {
   completedAt: string | null;
   createdAt: string;
   subtasks: Subtask[];
+  seriesId: string | null;
 };
 
 export type PreviousTrackerData = {
@@ -120,6 +121,18 @@ export const subtaskSummary = (task: Task): { done: number; total: number } => (
   done: task.subtasks.filter((subtask) => subtask.completed).length,
   total: task.subtasks.length,
 });
+
+// IDs of tasks belonging to a recurring series whose due date is on or
+// after fromDate — the set that "edit series" / "delete series" acts on,
+// leaving past occurrences untouched.
+export const seriesTaskIds = (
+  tasks: Task[],
+  seriesId: string,
+  fromDate: string,
+): string[] =>
+  tasks
+    .filter((task) => task.seriesId === seriesId && task.dueDate >= fromDate)
+    .map((task) => task.id);
 
 export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
