@@ -34,11 +34,13 @@ import {
   setTaskCompleted,
   setTaskSubtasks,
   subscribeToWorkspace,
+  updateSeriesTasks,
 } from "@/lib/task-tracker-repository";
 import {
   generateRecurringDates,
   groupColors,
   parseLegacyData,
+  seriesTaskIds,
   subtaskSummary,
   tasksToCsv,
   today,
@@ -233,6 +235,10 @@ export default function TaskTrackerApp() {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [seriesModalTask, setSeriesModalTask] = useState<Task | null>(null);
+  const [seriesTitle, setSeriesTitle] = useState("");
+  const [seriesGroupId, setSeriesGroupId] = useState("work");
+  const [seriesPriority, setSeriesPriority] = useState<Priority>("Medium");
   const [monthCursor, setMonthCursor] = useState(() => {
     const start = new Date();
     start.setDate(1);
@@ -315,6 +321,7 @@ export default function TaskTrackerApp() {
         setDeleteGroupId(null);
         setConfirmSignOut(false);
         setExpandedTaskId(null);
+        setSeriesModalTask(null);
         return;
       }
 
@@ -602,6 +609,35 @@ export default function TaskTrackerApp() {
     await run(() => setTaskSubtasks(db, user.uid, task.id, nextSubtasks));
   };
 
+  const openSeriesModal = (task: Task) => {
+    setSeriesModalTask(task);
+    setSeriesTitle(task.title);
+    setSeriesGroupId(task.groupId);
+    setSeriesPriority(task.priority);
+  };
+
+  const updateSeries = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!seriesModalTask?.seriesId || !seriesTitle.trim()) return;
+    const ids = seriesTaskIds(tasks, seriesModalTask.seriesId, today());
+    if (!ids.length) return;
+    await run(async () => {
+      await updateSeriesTasks(db, user.uid, ids, {
+        title: seriesTitle.trim(),
+        groupId: seriesGroupId,
+        priority: seriesPriority,
+      });
+      setSeriesModalTask(null);
+    });
+  };
+
+  const deleteSeriesUpcoming = () => {
+    if (!seriesModalTask?.seriesId) return;
+    const ids = seriesTaskIds(tasks, seriesModalTask.seriesId, today());
+    setSeriesModalTask(null);
+    setDeleteIds(ids);
+  };
+
   const formatDate = (date: string) => {
     if (!date) return "No due date";
     if (date === today()) return "Due today";
@@ -793,7 +829,15 @@ export default function TaskTrackerApp() {
                       <article className={`task-row ${task.completed ? "completed" : ""}`} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
                         <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
                         <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? <IconCheck /> : null}</button>
-                        <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
+                        <div className="task-main">
+                          <h2>{task.title}</h2>
+                          <div className="task-meta">
+                            <span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span>
+                            <span>{formatDate(task.dueDate)}</span>
+                            {task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}
+                            {task.seriesId && <button type="button" className="series-chip" aria-label="Edit repeating series" title="Part of a repeating series — edit or delete upcoming occurrences" onClick={() => openSeriesModal(task)}><IconRepeat /></button>}
+                          </div>
+                        </div>
                         <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
                         <button type="button" className={`subtask-chip ${expanded ? "expanded" : ""} ${summary.total > 0 && summary.done === summary.total ? "all-done" : ""}`} aria-label={summary.total ? `${summary.done} of ${summary.total} subtasks done, toggle checklist` : "Add subtasks"} title={summary.total ? `${summary.done}/${summary.total} subtasks` : "Add subtasks"} onClick={() => toggleSubtaskPanel(task.id)}>
                           {summary.total > 0 ? `${summary.done}/${summary.total}` : <IconPlus />}
@@ -860,6 +904,36 @@ export default function TaskTrackerApp() {
           </form>
         </div>
       )}
+
+      {seriesModalTask && (() => {
+        const upcomingIds = seriesModalTask.seriesId
+          ? seriesTaskIds(tasks, seriesModalTask.seriesId, today())
+          : [];
+        return (
+          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSeriesModalTask(null)}>
+            <form className="modal small-modal" onSubmit={updateSeries}>
+              <div className="modal-head"><div><span className="eyebrow">REPEATING SERIES</span><h2>Edit upcoming occurrences</h2></div><button type="button" onClick={() => setSeriesModalTask(null)} aria-label="Close"><IconX /></button></div>
+              <p className="series-modal-note">
+                {upcomingIds.length
+                  ? `Applies to ${upcomingIds.length} upcoming occurrence${upcomingIds.length === 1 ? "" : "s"} in this series. Past occurrences are left as-is.`
+                  : "No upcoming occurrences left in this series — nothing to edit or delete."}
+              </p>
+              <label>Task name<input autoFocus value={seriesTitle} onChange={(event) => setSeriesTitle(event.target.value)} required /></label>
+              <div className="form-grid two-col">
+                <label>Group<select value={seriesGroupId} onChange={(event) => setSeriesGroupId(event.target.value)}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+                <label>Priority<select value={seriesPriority} onChange={(event) => setSeriesPriority(event.target.value as Priority)}><option>High</option><option>Medium</option><option>Low</option></select></label>
+              </div>
+              <div className="modal-actions split-actions">
+                <button type="button" className="danger-button" disabled={busy || !upcomingIds.length} onClick={deleteSeriesUpcoming}>Delete upcoming</button>
+                <div className="modal-actions-right">
+                  <button type="button" className="quiet-button" onClick={() => setSeriesModalTask(null)}>Cancel</button>
+                  <button className="add-button" disabled={busy || !upcomingIds.length}>{busy ? "Saving…" : "Update series"}</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
 
       {deleteIds.length > 0 && (
         <div className="modal-backdrop">
