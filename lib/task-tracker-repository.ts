@@ -20,6 +20,7 @@ import {
   type Group,
   type PreviousTrackerData,
   type Priority,
+  type Subtask,
   type Task,
 } from "./task-tracker-types";
 
@@ -33,6 +34,18 @@ const mapGroups = (snapshot: QuerySnapshot<DocumentData>): Group[] =>
     color: String(item.data().color ?? "#586A5B"),
   }));
 
+const mapSubtasks = (value: unknown): Subtask[] =>
+  Array.isArray(value)
+    ? value
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          id: String(item.id ?? ""),
+          title: String(item.title ?? ""),
+          completed: Boolean(item.completed),
+        }))
+        .filter((subtask) => subtask.id && subtask.title)
+    : [];
+
 const mapTasks = (snapshot: QuerySnapshot<DocumentData>): Task[] =>
   snapshot.docs.map((item) => {
     const data = item.data();
@@ -45,6 +58,7 @@ const mapTasks = (snapshot: QuerySnapshot<DocumentData>): Task[] =>
       completed: Boolean(data.completed),
       completedAt: data.completedAt ? toIso(data.completedAt) : null,
       createdAt: toIso(data.createdAt),
+      subtasks: mapSubtasks(data.subtasks),
     };
   });
 
@@ -213,6 +227,21 @@ export async function setTaskCompleted(
   await updateDoc(doc(db, "users", userId, "tasks", task.id), {
     completed: !task.completed,
     completedAt: task.completed ? null : serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// Replaces a task's full subtask list. Callers compute the next array
+// client-side (toggle/add/delete) and pass the whole thing, matching the
+// pattern used elsewhere in this file.
+export async function setTaskSubtasks(
+  db: Firestore,
+  userId: string,
+  taskId: string,
+  subtasks: Subtask[],
+) {
+  await updateDoc(doc(db, "users", userId, "tasks", taskId), {
+    subtasks,
     updatedAt: serverTimestamp(),
   });
 }
