@@ -49,6 +49,21 @@ import {
   firebaseConfigured,
   getFirebaseServices,
 } from "@/lib/firebase";
+import {
+  IconArrowUpRight,
+  IconCalendar,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconClock,
+  IconHash,
+  IconLogOut,
+  IconPlus,
+  IconRepeat,
+  IconSearch,
+  IconUpload,
+  IconX,
+} from "@/lib/icons";
 
 type AuthStatus = "loading" | "signed-out" | "signed-in" | "unconfigured";
 type Composer = "single" | "bulk" | "recurring" | null;
@@ -538,13 +553,13 @@ export default function TaskTrackerApp() {
         <nav className="main-nav" aria-label="Task views">
           {(["All", "Today", "Upcoming", "Completed", "Calendar"] as Filter[]).map((item) => (
             <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-              <span className="nav-icon">{item === "All" ? "⌗" : item === "Today" ? "◷" : item === "Upcoming" ? "↗" : item === "Completed" ? "✓" : "▦"}</span>
+              <span className="nav-icon">{item === "All" ? <IconHash /> : item === "Today" ? <IconClock /> : item === "Upcoming" ? <IconArrowUpRight /> : item === "Completed" ? <IconCheck /> : <IconCalendar />}</span>
               <span className="nav-label">{item}</span>
               {item !== "Calendar" && <span className="nav-count">{item === "All" ? tasks.length : item === "Today" ? counts.today : item === "Completed" ? counts.done : tasks.filter((task) => !task.completed && task.dueDate > today()).length}</span>}
             </button>
           ))}
         </nav>
-        <div className="group-heading"><span>Groups</span><button aria-label="Add group" onClick={() => setNewGroup(true)}>＋</button></div>
+        <div className="group-heading"><span>Groups</span><button aria-label="Add group" onClick={() => setNewGroup(true)}><IconPlus /></button></div>
         <div className="group-list">
           <button className={groupFilter === "all" ? "group-active" : ""} onClick={() => setGroupFilter("all")}><span className="all-dot" />All groups</button>
           {groups.map((group) => (
@@ -553,25 +568,25 @@ export default function TaskTrackerApp() {
                 <span className="group-dot" style={{ background: group.color }} />{group.name}
                 <span className="nav-count">{tasks.filter((task) => task.groupId === group.id).length}</span>
               </button>
-              <button className="group-delete" aria-label={`Delete group ${group.name}`} title={`Delete ${group.name}`} onClick={() => setDeleteGroupId(group.id)}>×</button>
+              <button className="group-delete" aria-label={`Delete group ${group.name}`} title={`Delete ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>
             </div>
           ))}
         </div>
         <div className="account-card">
           <span className="avatar">{initials}</span>
           <div><strong>{user.displayName || "Task Tracker user"}</strong><span>{user.email}</span></div>
-          <button aria-label="Sign out" title="Sign out" onClick={() => signOut(getFirebaseServices()!.auth)}>↪</button>
+          <button aria-label="Sign out" title="Sign out" onClick={() => signOut(getFirebaseServices()!.auth)}><IconLogOut /></button>
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" /></label>
+          <label className="search"><span><IconSearch /></span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" /></label>
           <div className="sync-state" data-online={online}><i />{syncText}</div>
           <div className="top-actions">
-            <button className="bulk-button" onClick={() => setComposer("recurring")}>↻ <span>Repeating</span></button>
-            <button className="bulk-button" onClick={() => setComposer("bulk")}>＋ <span>Bulk add</span></button>
-            <button className="add-button" onClick={() => setComposer("single")}>＋ Add task</button>
+            <button className="bulk-button" onClick={() => setComposer("recurring")}><IconRepeat /> <span>Repeating</span></button>
+            <button className="bulk-button" onClick={() => setComposer("bulk")}><IconPlus /> <span>Bulk add</span></button>
+            <button className="add-button" onClick={() => setComposer("single")}><IconPlus /> Add task</button>
           </div>
         </header>
 
@@ -580,10 +595,10 @@ export default function TaskTrackerApp() {
           {groups.map((group) => (
             <span className="mobile-chip" key={group.id}>
               <button className={groupFilter === group.id ? "active" : ""} onClick={() => setGroupFilter(group.id)}><i style={{ background: group.color }} />{group.name}</button>
-              <button className="mobile-chip-delete" aria-label={`Delete group ${group.name}`} onClick={() => setDeleteGroupId(group.id)}>×</button>
+              <button className="mobile-chip-delete" aria-label={`Delete group ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>
             </span>
           ))}
-          <button className="new-group-chip" onClick={() => setNewGroup(true)}>＋ Group</button>
+          <button className="new-group-chip" onClick={() => setNewGroup(true)}><IconPlus /> Group</button>
         </div>
 
         <div className="content">
@@ -599,15 +614,15 @@ export default function TaskTrackerApp() {
             <div><strong>{counts.done}</strong><span>Completed</span></div>
           </div>
 
-          {notice && <div className="notice-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss message">×</button></div>}
+          {notice && <div className="notice-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss message"><IconX /></button></div>}
           {filter !== "Calendar" && selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
 
           {filter === "Calendar" ? (
             <div className="calendar-view">
               <div className="calendar-toolbar">
-                <button type="button" className="quiet-button" aria-label="Previous month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))}>‹</button>
+                <button type="button" className="quiet-button" aria-label="Previous month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))}><IconChevronLeft /></button>
                 <h2>{monthLabel}</h2>
-                <button type="button" className="quiet-button" aria-label="Next month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))}>›</button>
+                <button type="button" className="quiet-button" aria-label="Next month" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))}><IconChevronRight /></button>
                 <button type="button" className="text-button calendar-today-button" onClick={() => { const now = new Date(); setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1)); }}>Today</button>
               </div>
               <div className="calendar-weekdays">
@@ -645,7 +660,7 @@ export default function TaskTrackerApp() {
                   );
                 })}
               </div>
-              {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span>✓</span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
+              {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span><IconCheck /></span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
             </div>
           ) : (
             <>
@@ -657,14 +672,14 @@ export default function TaskTrackerApp() {
                   return (
                     <article className={`task-row ${task.completed ? "completed" : ""}`} key={task.id} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
                       <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
-                      <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? "✓" : ""}</button>
+                      <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? <IconCheck /> : null}</button>
                       <div className="task-main"><h2>{task.title}</h2><div className="task-meta"><span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span><span>{formatDate(task.dueDate)}</span>{task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}</div></div>
                       <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
-                      <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}>×</button>
+                      <button className="row-delete" aria-label={`Delete ${task.title}`} onClick={() => setDeleteIds([task.id])}><IconX /></button>
                     </article>
                   );
                 })}
-                {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span>✓</span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
+                {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span><IconCheck /></span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
               </div>
             </>
           )}
@@ -674,7 +689,7 @@ export default function TaskTrackerApp() {
       {composer && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && resetComposer()}>
           <form className="modal" onSubmit={addTaskRecords}>
-            <div className="modal-head"><div><span className="eyebrow">{composer === "bulk" ? "QUICK CAPTURE" : composer === "recurring" ? "REPEATING TASK" : "NEW TASK"}</span><h2>{composer === "bulk" ? "Add multiple tasks" : composer === "recurring" ? "Add a repeating task" : "Add a task"}</h2></div><button type="button" onClick={resetComposer} aria-label="Close">×</button></div>
+            <div className="modal-head"><div><span className="eyebrow">{composer === "bulk" ? "QUICK CAPTURE" : composer === "recurring" ? "REPEATING TASK" : "NEW TASK"}</span><h2>{composer === "bulk" ? "Add multiple tasks" : composer === "recurring" ? "Add a repeating task" : "Add a task"}</h2></div><button type="button" onClick={resetComposer} aria-label="Close"><IconX /></button></div>
             {composer === "bulk" ? <label>Tasks <span className="label-hint">One per line</span><textarea autoFocus value={bulkTitles} onChange={(event) => setBulkTitles(event.target.value)} placeholder={"Prepare slides\nSend weekly update\nSchedule review"} required /></label> : <label>Task name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What needs to be done?" required /></label>}
             <div className={`form-grid${composer === "recurring" ? " two-col" : ""}`}>
               <label>Group<select value={groupId} onChange={(event) => setGroupId(event.target.value)}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
@@ -699,7 +714,7 @@ export default function TaskTrackerApp() {
       {newGroup && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setNewGroup(false)}>
           <form className="modal small-modal" onSubmit={addGroupRecord}>
-            <div className="modal-head"><div><span className="eyebrow">ORGANIZE</span><h2>New group</h2></div><button type="button" onClick={() => setNewGroup(false)} aria-label="Close">×</button></div>
+            <div className="modal-head"><div><span className="eyebrow">ORGANIZE</span><h2>New group</h2></div><button type="button" onClick={() => setNewGroup(false)} aria-label="Close"><IconX /></button></div>
             <label>Group name<input autoFocus value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="e.g. Learning" required /></label>
             <fieldset><legend>Color</legend><div className="color-row">{groupColors.map((color) => <button type="button" key={color} aria-label={`Use color ${color}`} className={groupColor === color ? "color-selected" : ""} style={{ background: color }} onClick={() => setGroupColor(color)} />)}</div></fieldset>
             <div className="modal-actions"><button type="button" className="quiet-button" onClick={() => setNewGroup(false)}>Cancel</button><button className="add-button" disabled={busy}>{busy ? "Creating…" : "Create group"}</button></div>
@@ -745,7 +760,7 @@ export default function TaskTrackerApp() {
       {legacyData && (
         <div className="modal-backdrop">
           <div className="modal migration-modal" role="dialog" aria-modal="true" aria-labelledby="migration-title">
-            <span className="migration-mark">↥</span><span className="eyebrow">ONE-TIME IMPORT</span><h2 id="migration-title">Bring your previous tracker data</h2>
+            <span className="migration-mark"><IconUpload /></span><span className="eyebrow">ONE-TIME IMPORT</span><h2 id="migration-title">Bring your previous tracker data</h2>
             <p>We found {legacyData.tasks.length} task{legacyData.tasks.length === 1 ? "" : "s"} and {legacyData.groups.length} group{legacyData.groups.length === 1 ? "" : "s"} saved in this browser.</p>
             <div className="modal-actions"><button className="quiet-button" disabled={busy} onClick={dismissMigration}>Not now</button><button className="add-button" disabled={busy} onClick={importPreviousData}>{busy ? "Importing…" : "Import and sync"}</button></div>
           </div>
