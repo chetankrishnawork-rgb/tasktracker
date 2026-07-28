@@ -1,5 +1,5 @@
 export type Priority = "High" | "Medium" | "Low";
-export type Filter = "All" | "Today" | "Upcoming" | "Completed" | "Calendar";
+export type Filter = "All" | "Today" | "Upcoming" | "Completed" | "Calendar" | "Stats";
 
 export type Group = {
   id: string;
@@ -47,6 +47,13 @@ export const groupColors = [
 ];
 
 export const today = () => new Date().toISOString().slice(0, 10);
+
+const formatDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 // Builds the list of due dates (YYYY-MM-DD) for a recurring task, one entry
 // per workday in the range by default, optionally including weekends.
@@ -133,6 +140,70 @@ export const seriesTaskIds = (
   tasks
     .filter((task) => task.seriesId === seriesId && task.dueDate >= fromDate)
     .map((task) => task.id);
+
+// Current daily completion streak ending at referenceDate: counts backward
+// from referenceDate (or the day before, if nothing's been completed yet
+// today) as long as each day in a row has at least one completed task.
+export const completionStreak = (tasks: Task[], referenceDate: string): number => {
+  const completedDates = new Set(
+    tasks
+      .filter((task) => task.completed && task.completedAt)
+      .map((task) => task.completedAt!.slice(0, 10)),
+  );
+  const cursor = new Date(`${referenceDate}T12:00:00`);
+  if (Number.isNaN(cursor.getTime())) return 0;
+  if (!completedDates.has(referenceDate)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let streak = 0;
+  while (completedDates.has(formatDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+};
+
+// Completed-task counts for each of the `days` days ending at referenceDate
+// (inclusive), oldest first — the data behind a simple activity bar chart.
+export const completionsByDay = (
+  tasks: Task[],
+  days: number,
+  referenceDate: string,
+): { date: string; count: number }[] => {
+  const counts = new Map<string, number>();
+  tasks.forEach((task) => {
+    if (task.completed && task.completedAt) {
+      const key = task.completedAt.slice(0, 10);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  });
+  const cursor = new Date(`${referenceDate}T12:00:00`);
+  cursor.setDate(cursor.getDate() - (days - 1));
+  const result: { date: string; count: number }[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const key = formatDateKey(cursor);
+    result.push({ date: key, count: counts.get(key) ?? 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return result;
+};
+
+// Per-group completed/total task counts, used for the "by group" breakdown
+// in the stats view.
+export const tasksByGroupCounts = (
+  tasks: Task[],
+  groups: Group[],
+): { groupId: string; name: string; color: string; total: number; completed: number }[] =>
+  groups.map((group) => {
+    const groupTasks = tasks.filter((task) => task.groupId === group.id);
+    return {
+      groupId: group.id,
+      name: group.name,
+      color: group.color,
+      total: groupTasks.length,
+      completed: groupTasks.filter((task) => task.completed).length,
+    };
+  });
 
 export const parseLegacyData = (value: string | null): PreviousTrackerData | null => {
   if (!value) return null;
