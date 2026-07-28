@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { generateRecurringDates, seriesTaskIds, subtaskSummary, tasksToCsv } from "../lib/task-tracker-types.ts";
+import {
+  completionsByDay,
+  completionStreak,
+  generateRecurringDates,
+  seriesTaskIds,
+  subtaskSummary,
+  tasksByGroupCounts,
+  tasksToCsv,
+} from "../lib/task-tracker-types.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -48,6 +56,12 @@ test("the application includes PWA and migration support", async () => {
   assert.match(worker, /task-tracker-shell-v1/);
   assert.match(app, /Import and sync/);
   assert.match(app, /serviceWorker/);
+});
+
+test("the application exposes a Stats view", async () => {
+  const app = await read("app/task-tracker-app.tsx");
+  assert.match(app, /"Stats"/);
+  assert.match(app, /Day streak/);
 });
 
 test("generateRecurringDates: single weekday returns itself", () => {
@@ -210,4 +224,86 @@ test("seriesTaskIds: returns an empty array when no tasks match", () => {
   const tasks = [seriesTask({ id: "a", seriesId: "s1", dueDate: "2026-07-01" })];
   assert.deepEqual(seriesTaskIds(tasks, "s1", "2026-07-27"), []);
   assert.deepEqual(seriesTaskIds(tasks, "does-not-exist", "2026-01-01"), []);
+});
+
+const statTask = (overrides) => ({
+  ...baseTask,
+  subtasks: [],
+  seriesId: null,
+  ...overrides,
+});
+
+test("completionStreak: zero when nothing has been completed", () => {
+  assert.equal(completionStreak([], "2026-07-27"), 0);
+});
+
+test("completionStreak: counts a run ending today", () => {
+  const tasks = [
+    statTask({ id: "1", completed: true, completedAt: "2026-07-27T10:00:00.000Z" }),
+    statTask({ id: "2", completed: true, completedAt: "2026-07-26T10:00:00.000Z" }),
+    statTask({ id: "3", completed: true, completedAt: "2026-07-25T10:00:00.000Z" }),
+  ];
+  assert.equal(completionStreak(tasks, "2026-07-27"), 3);
+});
+
+test("completionStreak: still counts yesterday's run if nothing is completed yet today", () => {
+  const tasks = [
+    statTask({ id: "1", completed: true, completedAt: "2026-07-26T10:00:00.000Z" }),
+    statTask({ id: "2", completed: true, completedAt: "2026-07-25T10:00:00.000Z" }),
+  ];
+  assert.equal(completionStreak(tasks, "2026-07-27"), 2);
+});
+
+test("completionStreak: stops at a gap", () => {
+  const tasks = [
+    statTask({ id: "1", completed: true, completedAt: "2026-07-27T10:00:00.000Z" }),
+    statTask({ id: "2", completed: true, completedAt: "2026-07-25T10:00:00.000Z" }),
+  ];
+  assert.equal(completionStreak(tasks, "2026-07-27"), 1);
+});
+
+test("completionsByDay: buckets completions per day across the window", () => {
+  const tasks = [
+    statTask({ id: "1", completed: true, completedAt: "2026-07-27T10:00:00.000Z" }),
+    statTask({ id: "2", completed: true, completedAt: "2026-07-27T18:00:00.000Z" }),
+    statTask({ id: "3", completed: true, completedAt: "2026-07-20T10:00:00.000Z" }),
+  ];
+  const result = completionsByDay(tasks, 3, "2026-07-27");
+  assert.deepEqual(result, [
+    { date: "2026-07-25", count: 0 },
+    { date: "2026-07-26", count: 0 },
+    { date: "2026-07-27", count: 2 },
+  ]);
+});
+
+test("completionsByDay: ignores incomplete tasks", () => {
+  const tasks = [statTask({ id: "1", completed: false, completedAt: null })];
+  const result = completionsByDay(tasks, 2, "2026-07-27");
+  assert.deepEqual(result, [
+    { date: "2026-07-26", count: 0 },
+    { date: "2026-07-27", count: 0 },
+  ]);
+});
+
+test("tasksByGroupCounts: totals and completions per group", () => {
+  const groups = [
+    { id: "work", name: "Work", color: "#586A5B" },
+    { id: "home", name: "Home", color: "#C4795A" },
+  ];
+  const tasks = [
+    statTask({ id: "1", groupId: "work", completed: true }),
+    statTask({ id: "2", groupId: "work", completed: false }),
+    statTask({ id: "3", groupId: "home", completed: false }),
+  ];
+  assert.deepEqual(tasksByGroupCounts(tasks, groups), [
+    { groupId: "work", name: "Work", color: "#586A5B", total: 2, completed: 1 },
+    { groupId: "home", name: "Home", color: "#C4795A", total: 1, completed: 0 },
+  ]);
+});
+
+test("tasksByGroupCounts: a group with no tasks shows zero/zero", () => {
+  const groups = [{ id: "empty", name: "Empty", color: "#586A5B" }];
+  assert.deepEqual(tasksByGroupCounts([], groups), [
+    { groupId: "empty", name: "Empty", color: "#586A5B", total: 0, completed: 0 },
+  ]);
 });
