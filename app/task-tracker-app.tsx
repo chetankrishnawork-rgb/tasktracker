@@ -60,6 +60,7 @@ import {
 import {
   IconArrowUpRight,
   IconBarChart,
+  IconBell,
   IconCalendar,
   IconCheck,
   IconChevronLeft,
@@ -90,6 +91,8 @@ const makeId = () =>
 // carrying its former product name into the current interface or data model.
 const previousDataStorageKey = ["day", "mark-data"].join("");
 const themeStorageKey = "task-tracker-theme";
+const notifyEnabledStorageKey = "task-tracker-notify-enabled";
+const notifiedDateStorageKey = "task-tracker-notified-date";
 
 const messageForError = (error: unknown) => {
   const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -218,6 +221,7 @@ export default function TaskTrackerApp() {
   const [usingCache, setUsingCache] = useState(false);
   const [online, setOnline] = useState(true);
   const [theme, setTheme] = useState<Theme>("light");
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [filter, setFilter] = useState<Filter>("All");
   const [groupFilter, setGroupFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -305,6 +309,37 @@ export default function TaskTrackerApp() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(themeStorageKey, theme);
   }, [theme]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(notifyEnabledStorageKey);
+    if (
+      stored === "true" &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    ) {
+      setNotifyEnabled(true);
+    }
+  }, []);
+
+  // Fires at most one "due today" browser notification per calendar day,
+  // only while the person has explicitly opted in and granted permission.
+  // Foreground-only by design (no service worker push, no server) — keeps
+  // this feature entirely client-side and free.
+  useEffect(() => {
+    if (!notifyEnabled) return;
+    if (authStatus !== "signed-in") return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const dueTodayCount = tasks.filter(
+      (task) => !task.completed && task.dueDate === today(),
+    ).length;
+    if (!dueTodayCount) return;
+    if (localStorage.getItem(notifiedDateStorageKey) === today()) return;
+    new Notification("Task Tracker", {
+      body: `You have ${dueTodayCount} task${dueTodayCount === 1 ? "" : "s"} due today.`,
+      icon: "/icon-192.png",
+    });
+    localStorage.setItem(notifiedDateStorageKey, today());
+  }, [notifyEnabled, authStatus, tasks]);
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
@@ -466,6 +501,32 @@ export default function TaskTrackerApp() {
       setNotice(messageForError(error));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const toggleNotifications = async () => {
+    if (notifyEnabled) {
+      setNotifyEnabled(false);
+      localStorage.setItem(notifyEnabledStorageKey, "false");
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      setNotice("Notifications aren't supported in this browser.");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      setNotice("Notifications are blocked for this site — enable them in your browser settings to turn this on.");
+      return;
+    }
+    const permission =
+      Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+    if (permission === "granted") {
+      setNotifyEnabled(true);
+      localStorage.setItem(notifyEnabledStorageKey, "true");
+    } else {
+      setNotice("Notification permission wasn't granted.");
     }
   };
 
@@ -745,6 +806,7 @@ export default function TaskTrackerApp() {
           <label className="search"><span><IconSearch /></span><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" title="Press / to search" /></label>
           <div className="sync-state" data-online={online}><i />{syncText}</div>
           <div className="top-actions">
+            <button className={`quiet-button icon-button ${notifyEnabled ? "active-toggle" : ""}`} aria-label={notifyEnabled ? "Turn off due-today notifications" : "Notify me about tasks due today"} title={notifyEnabled ? "Due-today notifications on" : "Notify me about tasks due today"} onClick={toggleNotifications}><IconBell /></button>
             <button className="quiet-button icon-button" aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>{theme === "dark" ? <IconSun /> : <IconMoon />}</button>
             <button className="quiet-button icon-button" aria-label="Export tasks as CSV" title="Export CSV" onClick={exportTasksAsCsv}><IconDownload /></button>
             <button className="bulk-button" onClick={() => setComposer("recurring")}><IconRepeat /> <span>Repeating</span></button>
