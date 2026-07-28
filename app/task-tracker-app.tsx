@@ -37,11 +37,14 @@ import {
   updateSeriesTasks,
 } from "@/lib/task-tracker-repository";
 import {
+  completionsByDay,
+  completionStreak,
   generateRecurringDates,
   groupColors,
   parseLegacyData,
   seriesTaskIds,
   subtaskSummary,
+  tasksByGroupCounts,
   tasksToCsv,
   today,
   type Filter,
@@ -56,6 +59,7 @@ import {
 } from "@/lib/firebase";
 import {
   IconArrowUpRight,
+  IconBarChart,
   IconCalendar,
   IconCheck,
   IconChevronLeft,
@@ -697,16 +701,22 @@ export default function TaskTrackerApp() {
     .map((part) => part[0].toUpperCase())
     .join("");
 
+  const streak = completionStreak(tasks, today());
+  const last14Days = completionsByDay(tasks, 14, today());
+  const completedThisWeek = last14Days.slice(-7).reduce((sum, day) => sum + day.count, 0);
+  const groupBreakdown = tasksByGroupCounts(tasks, groups);
+  const maxDayCount = Math.max(1, ...last14Days.map((day) => day.count));
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">T</span><span>Task Tracker</span></div>
         <nav className="main-nav" aria-label="Task views">
-          {(["All", "Today", "Upcoming", "Completed", "Calendar"] as Filter[]).map((item) => (
+          {(["All", "Today", "Upcoming", "Completed", "Calendar", "Stats"] as Filter[]).map((item) => (
             <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-              <span className="nav-icon">{item === "All" ? <IconHash /> : item === "Today" ? <IconClock /> : item === "Upcoming" ? <IconArrowUpRight /> : item === "Completed" ? <IconCheck /> : <IconCalendar />}</span>
+              <span className="nav-icon">{item === "All" ? <IconHash /> : item === "Today" ? <IconClock /> : item === "Upcoming" ? <IconArrowUpRight /> : item === "Completed" ? <IconCheck /> : item === "Calendar" ? <IconCalendar /> : <IconBarChart />}</span>
               <span className="nav-label">{item}</span>
-              {item !== "Calendar" && <span className="nav-count">{item === "All" ? tasks.length : item === "Today" ? counts.today : item === "Completed" ? counts.done : tasks.filter((task) => !task.completed && task.dueDate > today()).length}</span>}
+              {item !== "Calendar" && item !== "Stats" && <span className="nav-count">{item === "All" ? tasks.length : item === "Today" ? counts.today : item === "Completed" ? counts.done : tasks.filter((task) => !task.completed && task.dueDate > today()).length}</span>}
             </button>
           ))}
         </nav>
@@ -768,7 +778,7 @@ export default function TaskTrackerApp() {
           </div>
 
           {notice && <div className="notice-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss message"><IconX /></button></div>}
-          {filter !== "Calendar" && selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
+          {filter !== "Calendar" && filter !== "Stats" && selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
 
           {filter === "Calendar" ? (
             <div className="calendar-view">
@@ -814,6 +824,39 @@ export default function TaskTrackerApp() {
                 })}
               </div>
               {groupsLoaded && tasksLoaded && !visible.length && <div className="empty-state"><span><IconCheck /></span><h2>Nothing here</h2><p>Add a task or try another view.</p></div>}
+            </div>
+          ) : filter === "Stats" ? (
+            <div className="stats-view">
+              <div className="stats-cards">
+                <div className="stat-card"><strong>{streak}</strong><span>Day streak</span></div>
+                <div className="stat-card"><strong>{completedThisWeek}</strong><span>Completed this week</span></div>
+                <div className="stat-card"><strong>{counts.done}</strong><span>Completed all-time</span></div>
+              </div>
+              <div className="stats-chart">
+                <h2>Last 14 days</h2>
+                <div className="stats-chart-bars">
+                  {last14Days.map((day) => {
+                    const dateObj = new Date(`${day.date}T12:00:00`);
+                    return (
+                      <div className="stats-bar" key={day.date} title={`${day.count} completed on ${day.date}`}>
+                        <div className="stats-bar-fill" style={{ height: `${Math.max(4, (day.count / maxDayCount) * 100)}%` }} />
+                        <span className="stats-bar-label">{new Intl.DateTimeFormat("en", { weekday: "narrow" }).format(dateObj)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="stats-groups">
+                <h2>By group</h2>
+                {groupBreakdown.length === 0 && <p className="label-hint">No groups yet.</p>}
+                {groupBreakdown.map((group) => (
+                  <div className="stats-group-row" key={group.groupId}>
+                    <span className="stats-group-name"><i style={{ background: group.color }} />{group.name}</span>
+                    <div className="stats-group-bar"><div className="stats-group-bar-fill" style={{ width: `${group.total ? (group.completed / group.total) * 100 : 0}%`, background: group.color }} /></div>
+                    <span className="stats-group-count">{group.completed}/{group.total}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <>

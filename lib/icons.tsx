@@ -170,3 +170,14 @@ export function IconMoon(props: IconProps) {
     </svg>
   );
 }
+
+export function IconBarChart(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <line x1="4" y1="20" x2="20" y2="20" />
+      <rect x="6" y="12" width="3" height="8" />
+      <rect x="11" y="7" width="3" height="13" />
+      <rect x="16" y="15" width="3" height="5" />
+    </svg>
+  );
+}
