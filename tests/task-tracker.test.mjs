@@ -64,6 +64,13 @@ test("the application exposes a Stats view", async () => {
   assert.match(app, /Day streak/);
 });
 
+test("due-today notifications are opt-in and rate-limited to once per day", async () => {
+  const app = await read("app/task-tracker-app.tsx");
+  assert.match(app, /Notification\.requestPermission/);
+  assert.match(app, /notifiedDateStorageKey/);
+  assert.match(app, /localStorage\.getItem\(notifiedDateStorageKey\) === today\(\)/);
+});
+
 test("generateRecurringDates: single weekday returns itself", () => {
   // 2026-07-27 is a Monday
   assert.deepEqual(
