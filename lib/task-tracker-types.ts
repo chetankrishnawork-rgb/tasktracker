@@ -39,6 +39,9 @@ export type Task = {
   seriesId: string | null;
   scope?: Scope;
   createdBy?: string;
+  // Household tasks only: who it is assigned to and who completed it.
+  assigneeId?: string | null;
+  completedBy?: string | null;
 };
 
 export type PreviousTrackerData = {

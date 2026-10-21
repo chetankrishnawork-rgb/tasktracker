@@ -427,3 +427,17 @@ button:disabled { opacity: .58; cursor: progress; }
 [data-theme="dark"] .group-move:hover { background: #2a2c22; }
 [data-theme="dark"] .group-empty { color: #77786b; }
 [data-theme="dark"] .group-shared { color: #9a9c8e; }
+
+/* Assignment */
+.assignee-select { max-width: 110px; min-height: 32px; border: 1px solid #d3d1c8; border-radius: 999px; background: transparent; color: #5f6058; padding: 0 8px; font-size: 11px; text-overflow: ellipsis; cursor: pointer; flex: 0 1 auto; }
+.assignee-select:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.assignee-filter { display: flex; gap: 6px; margin: 0 0 14px; flex-wrap: wrap; }
+.assignee-filter button { min-height: 34px; padding: 0 13px; border: 1px solid #d3d1c8; border-radius: 999px; background: transparent; color: #65675f; font-size: 11.5px; font-weight: 650; cursor: pointer; }
+.assignee-filter button.active { background: #dfddd2; color: var(--ink); border-color: #c8c6bc; }
+@media (max-width: 700px) {
+  .assignee-select { max-width: 82px; padding: 0 6px; }
+}
+[data-theme="dark"] .assignee-select { border-color: #40423786; color: #a7a99a; }
+[data-theme="dark"] .assignee-select option { background: #1e1f18; color: var(--ink); }
+[data-theme="dark"] .assignee-filter button { border-color: #40423786; color: #a7a99a; }
+[data-theme="dark"] .assignee-filter button.active { background: #262820; color: var(--ink); border-color: #40423786; }
