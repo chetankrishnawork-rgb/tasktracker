@@ -36,7 +36,8 @@ test("destructive actions require the confirmation dialog", async () => {
   assert.match(app, /role="alertdialog"/);
   assert.match(app, /Yes, delete/);
   assert.match(app, /setDeleteIds\(selected\)/);
-  assert.match(app, /deleteTasks\(db, user\.uid, deleteIds\)/);
+  assert.match(app, /taskIdsByScope\(tasks, deleteIds\)/);
+  assert.match(app, /deleteTasks\(db, spaceFor\("private"\), idsByScope\.private\)/);
 });
 
 test("sign out requires confirmation", async () => {

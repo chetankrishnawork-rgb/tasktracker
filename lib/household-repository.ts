@@ -8,6 +8,8 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
+import { mapGroups, mapTasks } from "./task-tracker-repository";
+import type { Group, Task } from "./task-tracker-types";
 import {
   normalizeEmail,
   type Household,
@@ -192,4 +194,36 @@ export async function inviteToHousehold(
     });
   });
   await batch.commit();
+}
+
+// Live household lists and tasks, tagged with the household scope.
+export function subscribeToSharedSpace(
+  db: Firestore,
+  householdId: string,
+  handlers: {
+    onGroups: (groups: Group[], pending: boolean) => void;
+    onTasks: (tasks: Task[], pending: boolean) => void;
+    onError: (error: Error) => void;
+  },
+) {
+  const unsubscribeGroups = onSnapshot(
+    collection(db, "households", householdId, "groups"),
+    { includeMetadataChanges: true },
+    (snapshot) =>
+      handlers.onGroups(mapGroups(snapshot, "household"), snapshot.metadata.hasPendingWrites),
+    handlers.onError,
+  );
+
+  const unsubscribeTasks = onSnapshot(
+    collection(db, "households", householdId, "tasks"),
+    { includeMetadataChanges: true },
+    (snapshot) =>
+      handlers.onTasks(mapTasks(snapshot, "household"), snapshot.metadata.hasPendingWrites),
+    handlers.onError,
+  );
+
+  return () => {
+    unsubscribeGroups();
+    unsubscribeTasks();
+  };
 }

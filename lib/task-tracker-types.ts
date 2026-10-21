@@ -1,10 +1,23 @@
 export type Priority = "High" | "Medium" | "Low";
 export type Filter = "All" | "Today" | "Upcoming" | "Completed" | "Calendar" | "Stats";
 
+// Where a list or task lives: private to one person, or shared with the
+// household. Items without a scope are private.
+export type Scope = "private" | "household";
+
+// A place data can be read from and written to. Private data lives under the
+// user; household data lives under the household.
+export type Space =
+  | { scope: "private"; userId: string }
+  | { scope: "household"; userId: string; householdId: string };
+
 export type Group = {
   id: string;
   name: string;
   color: string;
+  scope?: Scope;
+  // Household lists only: who created the list (only they can delete it).
+  createdBy?: string;
 };
 
 export type Subtask = {
@@ -24,6 +37,8 @@ export type Task = {
   createdAt: string;
   subtasks: Subtask[];
   seriesId: string | null;
+  scope?: Scope;
+  createdBy?: string;
 };
 
 export type PreviousTrackerData = {

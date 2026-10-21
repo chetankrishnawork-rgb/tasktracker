@@ -33,8 +33,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .all-dot { border: 1.5px solid #72746b; }
 .group-row { position: relative; display: flex; align-items: center; }
 .group-row .group-nav-button { flex: 1; min-width: 0; padding-right: 30px; }
+.group-row .group-nav-button.has-move { padding-right: 58px; }
 .group-row .group-delete { position: absolute; right: 3px; width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--red); font-size: 15px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .15s ease, background .15s ease; cursor: pointer; }
 .group-row:hover .group-delete, .group-delete:focus-visible { opacity: 1; pointer-events: auto; }
+.group-row .group-move { position: absolute; right: 29px; width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #717267; font-size: 14px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .15s ease, background .15s ease; cursor: pointer; }
+.group-row:hover .group-move, .group-move:focus-visible { opacity: 1; pointer-events: auto; }
+.group-move:hover { background: #dfddd2; color: var(--green); }
+.group-empty { margin: 4px 9px 0; color: #8b8b81; font-size: 11px; }
+.group-shared { display: inline-flex; font-size: 11px; color: #7a7b71; }
 .group-delete:hover { background: #e6d6d1; }
 
 .calendar-view { margin-top: 6px; }
@@ -238,6 +244,8 @@ button:disabled { opacity: .58; cursor: progress; }
   .mobile-group-strip .mobile-chip { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; }
   .mobile-group-strip .mobile-chip-delete { min-height: 26px; height: 26px; width: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--red); font-size: 14px; line-height: 1; }
   .mobile-group-strip .mobile-chip-delete:active { background: #e6d6d1; }
+  .mobile-group-strip .mobile-chip-move { color: #77786f; }
+  .mobile-group-strip .mobile-chip-move:active { background: #dfddd2; }
 }
 
 @media (max-width: 700px) {
@@ -416,3 +424,6 @@ button:disabled { opacity: .58; cursor: progress; }
 [data-theme="dark"] .household-error { background: #3a2621; color: #e6b3a8; }
 [data-theme="dark"] .household-badge { background: #2a2f25; color: #b9c4b3; }
 [data-theme="dark"] .household-note { color: #9a9c8e; }
+[data-theme="dark"] .group-move:hover { background: #2a2c22; }
+[data-theme="dark"] .group-empty { color: #77786b; }
+[data-theme="dark"] .group-shared { color: #9a9c8e; }

@@ -90,8 +90,83 @@ test("the app wires in the household panel with setup, join and invite flows", a
     read("app/task-tracker-app.tsx"),
     read("app/household-panel.tsx"),
   ]);
-  assert.match(app, /<HouseholdPanel db=\{db\} user=\{user\} \/>/);
+  assert.match(app, /<HouseholdPanel db=\{db\} user=\{user\} state=\{household\} \/>/);
   assert.match(panel, /createHousehold\(db, user, name, parsed\.emails\)/);
   assert.match(panel, /acceptHouseholdInvite\(db, user, invite\)/);
   assert.match(panel, /inviteToHousehold\(db, user, household, fresh\)/);
+});
+
+test("scopeOf treats items without a scope as private", async () => {
+  const { scopeOf } = await import("../lib/household-types.ts");
+  assert.equal(scopeOf({}), "private");
+  assert.equal(scopeOf({ scope: "private" }), "private");
+  assert.equal(scopeOf({ scope: "household" }), "household");
+});
+
+test("splitGroupsByScope separates household and private lists", async () => {
+  const { splitGroupsByScope } = await import("../lib/household-types.ts");
+  const groups = [
+    { id: "a", name: "A", color: "#586A5B", scope: "private" },
+    { id: "b", name: "B", color: "#586A5B", scope: "household", createdBy: "u1" },
+    { id: "c", name: "C", color: "#586A5B" },
+  ];
+  const split = splitGroupsByScope(groups);
+  assert.deepEqual(split.household.map((g) => g.id), ["b"]);
+  assert.deepEqual(split.private.map((g) => g.id), ["a", "c"]);
+});
+
+test("canDeleteGroup: private lists are always deletable, household lists only by their creator", async () => {
+  const { canDeleteGroup } = await import("../lib/household-types.ts");
+  const mine = { id: "a", name: "A", color: "#586A5B", scope: "household", createdBy: "u1" };
+  assert.equal(canDeleteGroup({ ...mine, scope: "private" }, "u2"), true);
+  assert.equal(canDeleteGroup(mine, "u1"), true);
+  assert.equal(canDeleteGroup(mine, "u2"), false);
+});
+
+test("canMoveGroup: sharing needs a household and keeps one private list; making private needs the creator", async () => {
+  const { canMoveGroup } = await import("../lib/household-types.ts");
+  const priv = { id: "a", name: "A", color: "#586A5B", scope: "private" };
+  const shared = { id: "b", name: "B", color: "#586A5B", scope: "household", createdBy: "u1" };
+  assert.equal(canMoveGroup(priv, { userId: "u1", hasHousehold: true, privateGroupCount: 2 }), true);
+  assert.equal(canMoveGroup(priv, { userId: "u1", hasHousehold: false, privateGroupCount: 2 }), false);
+  assert.equal(canMoveGroup(priv, { userId: "u1", hasHousehold: true, privateGroupCount: 1 }), false);
+  assert.equal(canMoveGroup(shared, { userId: "u1", hasHousehold: true, privateGroupCount: 1 }), true);
+  assert.equal(canMoveGroup(shared, { userId: "u2", hasHousehold: true, privateGroupCount: 3 }), false);
+});
+
+test("taskIdsByScope routes ids to the space each task lives in", async () => {
+  const { taskIdsByScope } = await import("../lib/household-types.ts");
+  const base = {
+    title: "T", groupId: "g", priority: "Medium", dueDate: "", completed: false,
+    completedAt: null, createdAt: "", subtasks: [], seriesId: null,
+  };
+  const tasks = [
+    { ...base, id: "1", scope: "private" },
+    { ...base, id: "2", scope: "household" },
+    { ...base, id: "3" },
+    { ...base, id: "4", scope: "household" },
+  ];
+  assert.deepEqual(taskIdsByScope(tasks, ["1", "2", "3", "9"]), {
+    private: ["1", "3"],
+    household: ["2"],
+  });
+});
+
+test("writes go to the space the list or task lives in", async () => {
+  const [app, repo] = await Promise.all([
+    read("app/task-tracker-app.tsx"),
+    read("lib/task-tracker-repository.ts"),
+  ]);
+  assert.match(app, /createTasks\(db, spaceFor\(scopeOfGroup\(activeGroupId\)\)/);
+  assert.match(app, /setTaskCompleted\(db, spaceFor\(scopeOf\(task\)\), task\)/);
+  assert.match(app, /subscribeToSharedSpace\(db, householdId/);
+  assert.match(repo, /collection\(db, "households", space\.householdId, name\)/);
+  assert.match(repo, /createdBy: space\.userId/);
+});
+
+test("moving a list copies everything before removing the originals", async () => {
+  const repo = await read("lib/task-tracker-repository.ts");
+  const copy = repo.indexOf("commitInChunks(db, copies)");
+  const remove = repo.indexOf("commitInChunks(db, removals)");
+  assert.ok(copy > 0 && remove > copy);
 });

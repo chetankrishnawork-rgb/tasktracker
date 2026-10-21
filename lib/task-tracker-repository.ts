@@ -10,16 +10,19 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  Timestamp,
   type Firestore,
   type QuerySnapshot,
   type DocumentData,
-  type Timestamp,
+  type WriteBatch,
 } from "firebase/firestore";
 import {
   defaultGroups,
   type Group,
   type PreviousTrackerData,
   type Priority,
+  type Scope,
+  type Space,
   type Subtask,
   type Task,
 } from "./task-tracker-types";
@@ -27,11 +30,35 @@ import {
 const toIso = (value: Timestamp | null | undefined) =>
   value?.toDate ? value.toDate().toISOString() : "";
 
-const mapGroups = (snapshot: QuerySnapshot<DocumentData>): Group[] =>
+// Collection for a space: private data under the user, household data under
+// the household.
+const spaceCollection = (db: Firestore, space: Space, name: "groups" | "tasks") =>
+  space.scope === "household"
+    ? collection(db, "households", space.householdId, name)
+    : collection(db, "users", space.userId, name);
+
+const spaceDoc = (
+  db: Firestore,
+  space: Space,
+  name: "groups" | "tasks",
+  id: string,
+) => doc(spaceCollection(db, space, name), id);
+
+// Household documents also record who created them (the rules require it).
+const creatorFields = (space: Space) =>
+  space.scope === "household" ? { createdBy: space.userId } : {};
+
+export const mapGroups = (
+  snapshot: QuerySnapshot<DocumentData>,
+  scope: Scope = "private",
+): Group[] =>
   snapshot.docs.map((item) => ({
     id: item.id,
     name: String(item.data().name ?? "Untitled"),
     color: String(item.data().color ?? "#586A5B"),
+    scope,
+    createdBy:
+      typeof item.data().createdBy === "string" ? item.data().createdBy : undefined,
   }));
 
 const mapSubtasks = (value: unknown): Subtask[] =>
@@ -46,7 +73,10 @@ const mapSubtasks = (value: unknown): Subtask[] =>
         .filter((subtask) => subtask.id && subtask.title)
     : [];
 
-const mapTasks = (snapshot: QuerySnapshot<DocumentData>): Task[] =>
+export const mapTasks = (
+  snapshot: QuerySnapshot<DocumentData>,
+  scope: Scope = "private",
+): Task[] =>
   snapshot.docs.map((item) => {
     const data = item.data();
     return {
@@ -60,6 +90,8 @@ const mapTasks = (snapshot: QuerySnapshot<DocumentData>): Task[] =>
       createdAt: toIso(data.createdAt),
       subtasks: mapSubtasks(data.subtasks),
       seriesId: data.seriesId ? String(data.seriesId) : null,
+      scope,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : undefined,
     };
   });
 
@@ -137,47 +169,52 @@ export function subscribeToWorkspace(
 
 export async function createGroup(
   db: Firestore,
-  userId: string,
+  space: Space,
   group: Group,
 ) {
-  await setDoc(doc(db, "users", userId, "groups", group.id), {
+  await setDoc(spaceDoc(db, space, "groups", group.id), {
     name: group.name,
     color: group.color,
+    ...creatorFields(space),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
 
+// Deletes a group, first moving its tasks into reassignToGroupId (which must
+// be in the same space). A household group with no tasks needs no target.
 export async function deleteGroup(
   db: Firestore,
-  userId: string,
+  space: Space,
   groupId: string,
-  reassignToGroupId: string,
+  reassignToGroupId: string | null,
   affectedTaskIds: string[],
 ) {
-  for (let start = 0; start < affectedTaskIds.length; start += 400) {
-    const batch = writeBatch(db);
-    affectedTaskIds.slice(start, start + 400).forEach((taskId) => {
-      batch.update(doc(db, "users", userId, "tasks", taskId), {
-        groupId: reassignToGroupId,
-        updatedAt: serverTimestamp(),
+  if (reassignToGroupId) {
+    for (let start = 0; start < affectedTaskIds.length; start += 400) {
+      const batch = writeBatch(db);
+      affectedTaskIds.slice(start, start + 400).forEach((taskId) => {
+        batch.update(spaceDoc(db, space, "tasks", taskId), {
+          groupId: reassignToGroupId,
+          updatedAt: serverTimestamp(),
+        });
       });
-    });
-    await batch.commit();
+      await batch.commit();
+    }
   }
-  await deleteDoc(doc(db, "users", userId, "groups", groupId));
+  await deleteDoc(spaceDoc(db, space, "groups", groupId));
 }
 
 export async function createTasks(
   db: Firestore,
-  userId: string,
+  space: Space,
   titles: string[],
   details: { groupId: string; priority: Priority; dueDate: string },
 ) {
   for (let start = 0; start < titles.length; start += 400) {
     const batch = writeBatch(db);
     titles.slice(start, start + 400).forEach((title) => {
-      const taskRef = doc(collection(db, "users", userId, "tasks"));
+      const taskRef = doc(spaceCollection(db, space, "tasks"));
       batch.set(taskRef, {
         title,
         groupId: details.groupId,
@@ -185,6 +222,7 @@ export async function createTasks(
         dueDate: details.dueDate,
         completed: false,
         completedAt: null,
+        ...creatorFields(space),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -199,15 +237,15 @@ export async function createTasks(
 // together via updateSeriesTasks / deleteTasks.
 export async function createRecurringTasks(
   db: Firestore,
-  userId: string,
+  space: Space,
   title: string,
   details: { groupId: string; priority: Priority; dates: string[] },
 ) {
-  const seriesId = doc(collection(db, "users", userId, "tasks")).id;
+  const seriesId = doc(spaceCollection(db, space, "tasks")).id;
   for (let start = 0; start < details.dates.length; start += 400) {
     const batch = writeBatch(db);
     details.dates.slice(start, start + 400).forEach((dueDate) => {
-      const taskRef = doc(collection(db, "users", userId, "tasks"));
+      const taskRef = doc(spaceCollection(db, space, "tasks"));
       batch.set(taskRef, {
         title,
         groupId: details.groupId,
@@ -216,6 +254,7 @@ export async function createRecurringTasks(
         completed: false,
         completedAt: null,
         seriesId,
+        ...creatorFields(space),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -226,10 +265,10 @@ export async function createRecurringTasks(
 
 export async function setTaskCompleted(
   db: Firestore,
-  userId: string,
+  space: Space,
   task: Task,
 ) {
-  await updateDoc(doc(db, "users", userId, "tasks", task.id), {
+  await updateDoc(spaceDoc(db, space, "tasks", task.id), {
     completed: !task.completed,
     completedAt: task.completed ? null : serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -241,11 +280,11 @@ export async function setTaskCompleted(
 // pattern used elsewhere in this file.
 export async function setTaskSubtasks(
   db: Firestore,
-  userId: string,
+  space: Space,
   taskId: string,
   subtasks: Subtask[],
 ) {
-  await updateDoc(doc(db, "users", userId, "tasks", taskId), {
+  await updateDoc(spaceDoc(db, space, "tasks", taskId), {
     subtasks,
     updatedAt: serverTimestamp(),
   });
@@ -255,14 +294,14 @@ export async function setTaskSubtasks(
 // "edit this series" so every upcoming occurrence changes together.
 export async function updateSeriesTasks(
   db: Firestore,
-  userId: string,
+  space: Space,
   taskIds: string[],
   updates: { title: string; groupId: string; priority: Priority },
 ) {
   for (let start = 0; start < taskIds.length; start += 400) {
     const batch = writeBatch(db);
     taskIds.slice(start, start + 400).forEach((taskId) => {
-      batch.update(doc(db, "users", userId, "tasks", taskId), {
+      batch.update(spaceDoc(db, space, "tasks", taskId), {
         title: updates.title,
         groupId: updates.groupId,
         priority: updates.priority,
@@ -275,16 +314,81 @@ export async function updateSeriesTasks(
 
 export async function deleteTasks(
   db: Firestore,
-  userId: string,
+  space: Space,
   ids: string[],
 ) {
   for (let start = 0; start < ids.length; start += 400) {
     const batch = writeBatch(db);
     ids.slice(start, start + 400).forEach((id) =>
-      batch.delete(doc(db, "users", userId, "tasks", id)),
+      batch.delete(spaceDoc(db, space, "tasks", id)),
     );
     await batch.commit();
   }
+}
+
+const commitInChunks = async (
+  db: Firestore,
+  operations: Array<(batch: WriteBatch) => void>,
+) => {
+  for (let start = 0; start < operations.length; start += 400) {
+    const batch = writeBatch(db);
+    operations.slice(start, start + 400).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
+};
+
+// Moves a list and its tasks between private and household. The list gets a
+// fresh id (so ids never collide across spaces); tasks keep their ids, point
+// at the new list, and keep their dates and subtasks. Everything is copied
+// first and only then removed from the old space, so a failure part-way
+// leaves a duplicate rather than losing anything.
+export async function moveGroup(
+  db: Firestore,
+  from: Space,
+  to: Space,
+  group: Group,
+  tasks: Task[],
+  newGroupId: string,
+) {
+  const extra = creatorFields(to);
+  const copies: Array<(batch: WriteBatch) => void> = [
+    (batch) =>
+      batch.set(spaceDoc(db, to, "groups", newGroupId), {
+        name: group.name,
+        color: group.color,
+        ...extra,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    ...tasks.map((task) => (batch: WriteBatch) =>
+      batch.set(spaceDoc(db, to, "tasks", task.id), {
+        title: task.title,
+        groupId: newGroupId,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        completed: task.completed,
+        completedAt: task.completedAt
+          ? Timestamp.fromDate(new Date(task.completedAt))
+          : null,
+        subtasks: task.subtasks,
+        ...(task.seriesId ? { seriesId: task.seriesId } : {}),
+        ...extra,
+        createdAt: task.createdAt
+          ? Timestamp.fromDate(new Date(task.createdAt))
+          : serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    ),
+  ];
+  await commitInChunks(db, copies);
+
+  const removals: Array<(batch: WriteBatch) => void> = [
+    ...tasks.map((task) => (batch: WriteBatch) =>
+      batch.delete(spaceDoc(db, from, "tasks", task.id)),
+    ),
+    (batch) => batch.delete(spaceDoc(db, from, "groups", group.id)),
+  ];
+  await commitInChunks(db, removals);
 }
 
 export async function localMigrationComplete(
