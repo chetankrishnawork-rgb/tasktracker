@@ -1,4 +1,4 @@
-import type { Group, Task } from "./task-tracker-types";
+import type { Group, Scope, Task } from "./task-tracker-types";
 
 // A household is a small shared space (a family). Private lists keep living
 // under users/{uid}; household lists and tasks live under households/{id}.
@@ -83,3 +83,42 @@ export const memberLabel = (member: {
 // invitedEmails, so its length is the number of seats already spoken for.
 export const inviteSlotsLeft = (invitedEmails: string[]): number =>
   Math.max(0, MAX_INVITEES - invitedEmails.length);
+
+// Items saved before households existed have no scope and are private.
+export const scopeOf = (item: { scope?: Scope }): Scope => item.scope ?? "private";
+
+export const splitGroupsByScope = (
+  groups: Group[],
+): { household: Group[]; private: Group[] } => ({
+  household: groups.filter((group) => scopeOf(group) === "household"),
+  private: groups.filter((group) => scopeOf(group) === "private"),
+});
+
+// Only the person who created a household list can delete it (the rules
+// enforce this too). Private lists are always the owner's to delete.
+export const canDeleteGroup = (group: Group, userId: string): boolean =>
+  scopeOf(group) === "private" || group.createdBy === userId;
+
+// A private list can be shared when the person is in a household, but their
+// last private list stays put so they always keep somewhere private. A
+// household list can be made private only by whoever created it.
+export const canMoveGroup = (
+  group: Group,
+  context: { userId: string; hasHousehold: boolean; privateGroupCount: number },
+): boolean =>
+  scopeOf(group) === "private"
+    ? context.hasHousehold && context.privateGroupCount > 1
+    : group.createdBy === context.userId;
+
+// Splits task ids by where each task lives, so deletes go to the right space.
+export const taskIdsByScope = (
+  tasks: Task[],
+  ids: string[],
+): Record<Scope, string[]> => {
+  const wanted = new Set(ids);
+  const result: Record<Scope, string[]> = { private: [], household: [] };
+  tasks.forEach((task) => {
+    if (wanted.has(task.id)) result[scopeOf(task)].push(task.id);
+  });
+  return result;
+};

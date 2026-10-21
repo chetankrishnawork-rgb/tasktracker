@@ -23,6 +23,7 @@ import {
   useState,
 } from "react";
 import { HouseholdPanel } from "./household-panel";
+import { useHousehold } from "./use-household";
 import {
   createGroup,
   createRecurringTasks,
@@ -32,6 +33,7 @@ import {
   ensureWorkspace,
   importLegacyData,
   localMigrationComplete,
+  moveGroup,
   setTaskCompleted,
   setTaskSubtasks,
   subscribeToWorkspace,
@@ -52,8 +54,18 @@ import {
   type Group,
   type PreviousTrackerData,
   type Priority,
+  type Scope,
+  type Space,
   type Task,
 } from "@/lib/task-tracker-types";
+import { subscribeToSharedSpace } from "@/lib/household-repository";
+import {
+  canDeleteGroup,
+  canMoveGroup,
+  scopeOf,
+  splitGroupsByScope,
+  taskIdsByScope,
+} from "@/lib/household-types";
 import {
   firebaseConfigured,
   getFirebaseServices,
@@ -75,7 +87,9 @@ import {
   IconRepeat,
   IconSearch,
   IconSun,
+  IconLock,
   IconUpload,
+  IconUsers,
   IconX,
 } from "@/lib/icons";
 
@@ -213,8 +227,12 @@ export default function TaskTrackerApp() {
   );
   const [user, setUser] = useState<User | null>(null);
   const [db, setDb] = useState<Firestore | null>(null);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [privateGroups, setPrivateGroups] = useState<Group[]>([]);
+  const [privateTasks, setPrivateTasks] = useState<Task[]>([]);
+  const [sharedGroups, setSharedGroups] = useState<Group[]>([]);
+  const [sharedTasks, setSharedTasks] = useState<Task[]>([]);
+  const [sharedGroupsPending, setSharedGroupsPending] = useState(false);
+  const [sharedTasksPending, setSharedTasksPending] = useState(false);
   const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [groupsPending, setGroupsPending] = useState(false);
@@ -241,6 +259,8 @@ export default function TaskTrackerApp() {
   const [groupColor, setGroupColor] = useState(groupColors[3]);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+  const [moveGroupId, setMoveGroupId] = useState<string | null>(null);
+  const [newGroupScope, setNewGroupScope] = useState<Scope>("household");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
@@ -258,6 +278,18 @@ export default function TaskTrackerApp() {
   const [notice, setNotice] = useState("");
   const migrationCheckedFor = useRef("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const household = useHousehold(db, user);
+  const householdId = household.householdId;
+  // Private lists first, then the household's; everything below works on the
+  // combined lists and uses each item's scope to find where it lives.
+  const groups = useMemo(
+    () => [...privateGroups, ...(householdId ? sharedGroups : [])],
+    [privateGroups, sharedGroups, householdId],
+  );
+  const tasks = useMemo(
+    () => [...privateTasks, ...(householdId ? sharedTasks : [])],
+    [privateTasks, sharedTasks, householdId],
+  );
 
   useEffect(() => {
     if (!firebaseConfigured) return;
@@ -274,8 +306,8 @@ export default function TaskTrackerApp() {
       setNotice(messageForError(error)),
     );
     return onAuthStateChanged(services.auth, (currentUser) => {
-      setGroups([]);
-      setTasks([]);
+      setPrivateGroups([]);
+      setPrivateTasks([]);
       setGroupsLoaded(false);
       setTasksLoaded(false);
       setUser(currentUser);
@@ -359,6 +391,7 @@ export default function TaskTrackerApp() {
         setNewGroup(false);
         setDeleteIds([]);
         setDeleteGroupId(null);
+        setMoveGroupId(null);
         setConfirmSignOut(false);
         setExpandedTaskId(null);
         setSeriesModalTask(null);
@@ -393,20 +426,13 @@ export default function TaskTrackerApp() {
       if (!active) return;
       unsubscribe = subscribeToWorkspace(db, user.uid, {
         onGroups: (nextGroups, pending, cached) => {
-          setGroups(nextGroups);
+          setPrivateGroups(nextGroups);
           setGroupsPending(pending);
           setUsingCache((current) => current || cached);
           setGroupsLoaded(true);
-          if (nextGroups.length) {
-            setGroupId((current) =>
-              nextGroups.some((group) => group.id === current)
-                ? current
-                : nextGroups[0].id,
-            );
-          }
         },
         onTasks: (nextTasks, pending, cached) => {
-          setTasks(nextTasks);
+          setPrivateTasks(nextTasks);
           setTasksPending(pending);
           setUsingCache(cached);
           setTasksLoaded(true);
@@ -421,6 +447,21 @@ export default function TaskTrackerApp() {
       unsubscribe();
     };
   }, [user, db]);
+
+  useEffect(() => {
+    if (!db || !householdId) return;
+    return subscribeToSharedSpace(db, householdId, {
+      onGroups: (nextGroups, pending) => {
+        setSharedGroups(nextGroups);
+        setSharedGroupsPending(pending);
+      },
+      onTasks: (nextTasks, pending) => {
+        setSharedTasks(nextTasks);
+        setSharedTasksPending(pending);
+      },
+      onError: (error) => setNotice(messageForError(error)),
+    });
+  }, [db, householdId]);
 
   useEffect(() => {
     if (!user || !db || !groupsLoaded || !tasksLoaded) return;
@@ -485,9 +526,28 @@ export default function TaskTrackerApp() {
 
   const groupById = (id: string) =>
     groups.find((group) => group.id === id) ?? groups[0];
+  // The group chosen in the composer, falling back to the first one if the
+  // chosen group no longer exists (for example after it was moved).
+  const activeGroupId = groups.some((group) => group.id === groupId)
+    ? groupId
+    : (groups[0]?.id ?? groupId);
+  const spaceFor = (scope: Scope): Space => {
+    if (scope === "household") {
+      if (!householdId) throw new Error("Your household isn't available right now.");
+      return { scope: "household", userId: user.uid, householdId };
+    }
+    return { scope: "private", userId: user.uid };
+  };
+  const scopeOfGroup = (id: string): Scope =>
+    scopeOf(groups.find((group) => group.id === id) ?? {});
+  const groupsByScope = splitGroupsByScope(groups);
+  const openNewGroup = (scope: Scope) => {
+    setNewGroupScope(scope);
+    setNewGroup(true);
+  };
   const syncText = !online
     ? "Offline — changes will sync"
-    : groupsPending || tasksPending
+    : groupsPending || tasksPending || sharedGroupsPending || sharedTasksPending
       ? "Saving changes…"
       : usingCache
         ? "Reconnecting…"
@@ -543,10 +603,10 @@ export default function TaskTrackerApp() {
   const addTaskRecords = async (event: FormEvent) => {
     event.preventDefault();
     if (composer === "recurring") {
-      if (!title.trim() || !groupId || !recurringDates.length) return;
+      if (!title.trim() || !activeGroupId || !recurringDates.length) return;
       await run(async () => {
-        await createRecurringTasks(db, user.uid, title.trim(), {
-          groupId,
+        await createRecurringTasks(db, spaceFor(scopeOfGroup(activeGroupId)), title.trim(), {
+          groupId: activeGroupId,
           priority,
           dates: recurringDates,
         });
@@ -557,9 +617,13 @@ export default function TaskTrackerApp() {
     const titles = composer === "bulk"
       ? bulkTitles.split("\n").map((item) => item.trim()).filter(Boolean)
       : [title.trim()].filter(Boolean);
-    if (!titles.length || !groupId) return;
+    if (!titles.length || !activeGroupId) return;
     await run(async () => {
-      await createTasks(db, user.uid, titles, { groupId, priority, dueDate });
+      await createTasks(db, spaceFor(scopeOfGroup(activeGroupId)), titles, {
+        groupId: activeGroupId,
+        priority,
+        dueDate,
+      });
       resetComposer();
     });
   };
@@ -568,8 +632,9 @@ export default function TaskTrackerApp() {
     event.preventDefault();
     if (!groupName.trim()) return;
     const group = { id: makeId(), name: groupName.trim(), color: groupColor };
+    const scope: Scope = householdId ? newGroupScope : "private";
     await run(async () => {
-      await createGroup(db, user.uid, group);
+      await createGroup(db, spaceFor(scope), group);
       setGroupId(group.id);
       setGroupName("");
       setNewGroup(false);
@@ -578,7 +643,13 @@ export default function TaskTrackerApp() {
 
   const confirmDelete = async () => {
     await run(async () => {
-      await deleteTasks(db, user.uid, deleteIds);
+      const idsByScope = taskIdsByScope(tasks, deleteIds);
+      if (idsByScope.private.length) {
+        await deleteTasks(db, spaceFor("private"), idsByScope.private);
+      }
+      if (idsByScope.household.length) {
+        await deleteTasks(db, spaceFor("household"), idsByScope.household);
+      }
       setSelected((current) =>
         current.filter((id) => !deleteIds.includes(id)),
       );
@@ -586,25 +657,74 @@ export default function TaskTrackerApp() {
     });
   };
 
+  const groupPendingDelete = deleteGroupId
+    ? groups.find((group) => group.id === deleteGroupId)
+    : undefined;
+  const deleteScope = scopeOf(groupPendingDelete ?? {});
+  // Tasks only move to a list in the same place (private to private,
+  // household to household).
   const remainingGroupsAfterDelete = groups.filter(
-    (group) => group.id !== deleteGroupId,
+    (group) => group.id !== deleteGroupId && scopeOf(group) === deleteScope,
   );
-  const groupPendingDeleteTaskCount = deleteGroupId
-    ? tasks.filter((task) => task.groupId === deleteGroupId).length
-    : 0;
+  const groupPendingDeleteTasks = deleteGroupId
+    ? tasks.filter(
+        (task) => task.groupId === deleteGroupId && scopeOf(task) === deleteScope,
+      )
+    : [];
+  const groupPendingDeleteTaskCount = groupPendingDeleteTasks.length;
+  // A private list always needs another private list; an empty household
+  // list can simply be removed.
+  const canConfirmDeleteGroup =
+    remainingGroupsAfterDelete.length > 0 ||
+    (deleteScope === "household" && groupPendingDeleteTaskCount === 0);
 
   const confirmDeleteGroup = async () => {
-    if (!deleteGroupId) return;
-    const fallbackGroupId = remainingGroupsAfterDelete[0]?.id;
-    if (!fallbackGroupId) return;
-    const affectedTaskIds = tasks
-      .filter((task) => task.groupId === deleteGroupId)
-      .map((task) => task.id);
+    if (!deleteGroupId || !canConfirmDeleteGroup) return;
+    const fallbackGroupId = remainingGroupsAfterDelete[0]?.id ?? null;
+    const affectedTaskIds = groupPendingDeleteTasks.map((task) => task.id);
     await run(async () => {
-      await deleteGroup(db, user.uid, deleteGroupId, fallbackGroupId, affectedTaskIds);
+      await deleteGroup(
+        db,
+        spaceFor(deleteScope),
+        deleteGroupId,
+        fallbackGroupId,
+        affectedTaskIds,
+      );
       if (groupFilter === deleteGroupId) setGroupFilter("all");
-      if (groupId === deleteGroupId) setGroupId(fallbackGroupId);
+      if (groupId === deleteGroupId && fallbackGroupId) setGroupId(fallbackGroupId);
       setDeleteGroupId(null);
+    });
+  };
+
+  const groupPendingMove = moveGroupId
+    ? groups.find((group) => group.id === moveGroupId)
+    : undefined;
+  const movingToHousehold = groupPendingMove
+    ? scopeOf(groupPendingMove) === "private"
+    : true;
+  const groupPendingMoveTasks = groupPendingMove
+    ? tasks.filter(
+        (task) =>
+          task.groupId === groupPendingMove.id &&
+          scopeOf(task) === scopeOf(groupPendingMove),
+      )
+    : [];
+
+  const confirmMoveGroup = async () => {
+    if (!groupPendingMove) return;
+    const newGroupId = makeId();
+    await run(async () => {
+      await moveGroup(
+        db,
+        spaceFor(scopeOf(groupPendingMove)),
+        spaceFor(movingToHousehold ? "household" : "private"),
+        groupPendingMove,
+        groupPendingMoveTasks,
+        newGroupId,
+      );
+      if (groupFilter === groupPendingMove.id) setGroupFilter(newGroupId);
+      if (groupId === groupPendingMove.id) setGroupId(newGroupId);
+      setMoveGroupId(null);
     });
   };
 
@@ -656,7 +776,7 @@ export default function TaskTrackerApp() {
       { id: makeId(), title: titleValue, completed: false },
     ];
     await run(async () => {
-      await setTaskSubtasks(db, user.uid, task.id, nextSubtasks);
+      await setTaskSubtasks(db, spaceFor(scopeOf(task)), task.id, nextSubtasks);
       setNewSubtaskTitle("");
     });
   };
@@ -667,12 +787,12 @@ export default function TaskTrackerApp() {
         ? { ...subtask, completed: !subtask.completed }
         : subtask,
     );
-    await run(() => setTaskSubtasks(db, user.uid, task.id, nextSubtasks));
+    await run(() => setTaskSubtasks(db, spaceFor(scopeOf(task)), task.id, nextSubtasks));
   };
 
   const deleteSubtask = async (task: Task, subtaskId: string) => {
     const nextSubtasks = task.subtasks.filter((subtask) => subtask.id !== subtaskId);
-    await run(() => setTaskSubtasks(db, user.uid, task.id, nextSubtasks));
+    await run(() => setTaskSubtasks(db, spaceFor(scopeOf(task)), task.id, nextSubtasks));
   };
 
   const openSeriesModal = (task: Task) => {
@@ -688,7 +808,7 @@ export default function TaskTrackerApp() {
     const ids = seriesTaskIds(tasks, seriesModalTask.seriesId, today());
     if (!ids.length) return;
     await run(async () => {
-      await updateSeriesTasks(db, user.uid, ids, {
+      await updateSeriesTasks(db, spaceFor(scopeOf(seriesModalTask)), ids, {
         title: seriesTitle.trim(),
         groupId: seriesGroupId,
         priority: seriesPriority,
@@ -769,6 +889,32 @@ export default function TaskTrackerApp() {
   const groupBreakdown = tasksByGroupCounts(tasks, groups);
   const maxDayCount = Math.max(1, ...last14Days.map((day) => day.count));
 
+  const moveContext = {
+    userId: user.uid,
+    hasHousehold: Boolean(householdId),
+    privateGroupCount: groupsByScope.private.length,
+  };
+  const groupRow = (group: Group) => {
+    const shared = scopeOf(group) === "household";
+    const canMove = canMoveGroup(group, moveContext);
+    const moveLabel = shared
+      ? `Make ${group.name} private`
+      : `Share ${group.name} with your household`;
+    return (
+      <div className="group-row" key={group.id}>
+        <button className={`group-nav-button ${canMove ? "has-move" : ""} ${groupFilter === group.id ? "group-active" : ""}`} onClick={() => setGroupFilter(group.id)}>
+          <span className="group-dot" style={{ background: group.color }} />{group.name}
+          <span className="nav-count">{tasks.filter((task) => task.groupId === group.id).length}</span>
+        </button>
+        {canMove && <button className="group-move" aria-label={moveLabel} title={moveLabel} onClick={() => setMoveGroupId(group.id)}>{shared ? <IconLock /> : <IconUsers />}</button>}
+        {canDeleteGroup(group, user.uid) && <button className="group-delete" aria-label={`Delete group ${group.name}`} title={`Delete ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>}
+      </div>
+    );
+  };
+  const allGroupsButton = (
+    <button className={groupFilter === "all" ? "group-active" : ""} onClick={() => setGroupFilter("all")}><span className="all-dot" />All groups</button>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -782,23 +928,30 @@ export default function TaskTrackerApp() {
             </button>
           ))}
         </nav>
-        <div className="group-heading"><span>Groups</span><button aria-label="Add group" onClick={() => setNewGroup(true)}><IconPlus /></button></div>
-        <div className="group-list">
-          <button className={groupFilter === "all" ? "group-active" : ""} onClick={() => setGroupFilter("all")}><span className="all-dot" />All groups</button>
-          {groups.map((group) => (
-            <div className="group-row" key={group.id}>
-              <button className={`group-nav-button ${groupFilter === group.id ? "group-active" : ""}`} onClick={() => setGroupFilter(group.id)}>
-                <span className="group-dot" style={{ background: group.color }} />{group.name}
-                <span className="nav-count">{tasks.filter((task) => task.groupId === group.id).length}</span>
-              </button>
-              <button className="group-delete" aria-label={`Delete group ${group.name}`} title={`Delete ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>
+        {householdId ? (
+          <>
+            <div className="group-heading"><span>Household</span><button aria-label="Add household list" onClick={() => openNewGroup("household")}><IconPlus /></button></div>
+            <div className="group-list">
+              {allGroupsButton}
+              {groupsByScope.household.map(groupRow)}
+              {!groupsByScope.household.length && <p className="group-empty">No shared lists yet</p>}
             </div>
-          ))}
-        </div>
+            <div className="group-heading"><span>Private</span><button aria-label="Add private list" onClick={() => openNewGroup("private")}><IconPlus /></button></div>
+            <div className="group-list">{groupsByScope.private.map(groupRow)}</div>
+          </>
+        ) : (
+          <>
+            <div className="group-heading"><span>Groups</span><button aria-label="Add group" onClick={() => openNewGroup("private")}><IconPlus /></button></div>
+            <div className="group-list">
+              {allGroupsButton}
+              {groupsByScope.private.map(groupRow)}
+            </div>
+          </>
+        )}
         <div className="account-card">
           <span className="avatar">{initials}</span>
           <div><strong>{user.displayName || "Task Tracker user"}</strong><span>{user.email}</span></div>
-          <HouseholdPanel db={db} user={user} />
+          <HouseholdPanel db={db} user={user} state={household} />
           <button aria-label="Sign out" title="Sign out" onClick={() => setConfirmSignOut(true)}><IconLogOut /></button>
         </div>
       </aside>
@@ -819,13 +972,18 @@ export default function TaskTrackerApp() {
 
         <div className="mobile-group-strip" aria-label="Filter by group">
           <button className={groupFilter === "all" ? "active" : ""} onClick={() => setGroupFilter("all")}>All</button>
-          {groups.map((group) => (
-            <span className="mobile-chip" key={group.id}>
-              <button className={groupFilter === group.id ? "active" : ""} onClick={() => setGroupFilter(group.id)}><i style={{ background: group.color }} />{group.name}</button>
-              <button className="mobile-chip-delete" aria-label={`Delete group ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>
-            </span>
-          ))}
-          <button className="new-group-chip" onClick={() => setNewGroup(true)}><IconPlus /> Group</button>
+          {[...groupsByScope.household, ...groupsByScope.private].map((group) => {
+            const shared = scopeOf(group) === "household";
+            const moveLabel = shared ? `Make ${group.name} private` : `Share ${group.name} with your household`;
+            return (
+              <span className="mobile-chip" key={group.id}>
+                <button className={groupFilter === group.id ? "active" : ""} onClick={() => setGroupFilter(group.id)}>{shared ? <IconUsers /> : <i style={{ background: group.color }} />}{group.name}</button>
+                {canMoveGroup(group, moveContext) && <button className="mobile-chip-delete mobile-chip-move" aria-label={moveLabel} onClick={() => setMoveGroupId(group.id)}>{shared ? <IconLock /> : <IconUsers />}</button>}
+                {canDeleteGroup(group, user.uid) && <button className="mobile-chip-delete" aria-label={`Delete group ${group.name}`} onClick={() => setDeleteGroupId(group.id)}><IconX /></button>}
+              </span>
+            );
+          })}
+          <button className="new-group-chip" onClick={() => openNewGroup(householdId ? "household" : "private")}><IconPlus /> Group</button>
         </div>
 
         <div className="content">
@@ -875,7 +1033,7 @@ export default function TaskTrackerApp() {
                               className={`calendar-task ${task.completed ? "completed" : ""}`}
                               style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}
                               title={task.title}
-                              onClick={() => run(() => setTaskCompleted(db, user.uid, task))}
+                              onClick={() => run(() => setTaskCompleted(db, spaceFor(scopeOf(task)), task))}
                             >
                               {task.title}
                             </button>
@@ -935,11 +1093,11 @@ export default function TaskTrackerApp() {
                     <div className="task-row-group" key={task.id}>
                       <article className={`task-row ${task.completed ? "completed" : ""}`} style={{ "--group-color": group?.color ?? "#586A5B" } as React.CSSProperties}>
                         <input className="select-box" type="checkbox" aria-label={`Select ${task.title}`} checked={selected.includes(task.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...new Set([...current, task.id])] : current.filter((id) => id !== task.id))} />
-                        <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, user.uid, task))}>{task.completed ? <IconCheck /> : null}</button>
+                        <button className="complete-box" disabled={busy} aria-label={task.completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={() => run(() => setTaskCompleted(db, spaceFor(scopeOf(task)), task))}>{task.completed ? <IconCheck /> : null}</button>
                         <div className="task-main">
                           <h2>{task.title}</h2>
                           <div className="task-meta">
-                            <span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}</span>
+                            <span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}{scopeOf(task) === "household" && <span className="group-shared" title="Shared with your household"><IconUsers /></span>}</span>
                             <span>{formatDate(task.dueDate)}</span>
                             {task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}
                             {task.seriesId && <button type="button" className="series-chip" aria-label="Edit repeating series" title="Part of a repeating series — edit or delete upcoming occurrences" onClick={() => openSeriesModal(task)}><IconRepeat /></button>}
@@ -982,7 +1140,7 @@ export default function TaskTrackerApp() {
             <div className="modal-head"><div><span className="eyebrow">{composer === "bulk" ? "QUICK CAPTURE" : composer === "recurring" ? "REPEATING TASK" : "NEW TASK"}</span><h2>{composer === "bulk" ? "Add multiple tasks" : composer === "recurring" ? "Add a repeating task" : "Add a task"}</h2></div><button type="button" onClick={resetComposer} aria-label="Close"><IconX /></button></div>
             {composer === "bulk" ? <label>Tasks <span className="label-hint">One per line</span><textarea autoFocus value={bulkTitles} onChange={(event) => setBulkTitles(event.target.value)} placeholder={"Prepare slides\nSend weekly update\nSchedule review"} required /></label> : <label>Task name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What needs to be done?" required /></label>}
             <div className={`form-grid${composer === "recurring" ? " two-col" : ""}`}>
-              <label>Group<select value={groupId} onChange={(event) => setGroupId(event.target.value)}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+              <label>Group<select value={activeGroupId} onChange={(event) => setGroupId(event.target.value)}>{householdId ? (<><optgroup label="Household">{groupsByScope.household.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</optgroup><optgroup label="Private">{groupsByScope.private.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</optgroup></>) : groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
               <label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value as Priority)}><option>High</option><option>Medium</option><option>Low</option></select></label>
               {composer !== "recurring" && <label>Due date<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>}
             </div>
@@ -1006,6 +1164,13 @@ export default function TaskTrackerApp() {
           <form className="modal small-modal" onSubmit={addGroupRecord}>
             <div className="modal-head"><div><span className="eyebrow">ORGANIZE</span><h2>New group</h2></div><button type="button" onClick={() => setNewGroup(false)} aria-label="Close"><IconX /></button></div>
             <label>Group name<input autoFocus value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="e.g. Learning" required /></label>
+            {householdId && (
+              <fieldset>
+                <legend>Who can see it</legend>
+                <label className="checkbox-row"><input type="radio" name="group-scope" checked={newGroupScope === "household"} onChange={() => setNewGroupScope("household")} /> Household &mdash; everyone in your household</label>
+                <label className="checkbox-row"><input type="radio" name="group-scope" checked={newGroupScope === "private"} onChange={() => setNewGroupScope("private")} /> Private &mdash; only you</label>
+              </fieldset>
+            )}
             <fieldset><legend>Color</legend><div className="color-row">{groupColors.map((color) => <button type="button" key={color} aria-label={`Use color ${color}`} className={groupColor === color ? "color-selected" : ""} style={{ background: color }} onClick={() => setGroupColor(color)} />)}</div></fieldset>
             <div className="modal-actions"><button type="button" className="quiet-button" onClick={() => setNewGroup(false)}>Cancel</button><button className="add-button" disabled={busy}>{busy ? "Creating…" : "Create group"}</button></div>
           </form>
@@ -1027,7 +1192,7 @@ export default function TaskTrackerApp() {
               </p>
               <label>Task name<input autoFocus value={seriesTitle} onChange={(event) => setSeriesTitle(event.target.value)} required /></label>
               <div className="form-grid two-col">
-                <label>Group<select value={seriesGroupId} onChange={(event) => setSeriesGroupId(event.target.value)}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+                <label>Group<select value={seriesGroupId} onChange={(event) => setSeriesGroupId(event.target.value)}>{groups.filter((group) => scopeOf(group) === scopeOf(seriesModalTask)).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
                 <label>Priority<select value={seriesPriority} onChange={(event) => setSeriesPriority(event.target.value as Priority)}><option>High</option><option>Medium</option><option>Low</option></select></label>
               </div>
               <div className="modal-actions split-actions">
@@ -1057,21 +1222,41 @@ export default function TaskTrackerApp() {
           <div className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-group-title">
             <div className="warning-mark">!</div>
             <h2 id="delete-group-title">Delete &ldquo;{groups.find((group) => group.id === deleteGroupId)?.name}&rdquo;?</h2>
-            {remainingGroupsAfterDelete.length === 0 ? (
-              <p>You need at least one group to keep using Task Tracker, so this one can&rsquo;t be deleted yet. Create another group first, then come back to remove this one.</p>
+            {!canConfirmDeleteGroup ? (
+              <p>{deleteScope === "household"
+                ? "This list still has tasks, and they need another household list to move into. Create another household list first, then come back to remove this one."
+                : "You need at least one private group to keep using Task Tracker, so this one can\u2019t be deleted yet. Create another group first, then come back to remove this one."}</p>
             ) : (
               <p>
                 This action can&rsquo;t be undone.
                 {groupPendingDeleteTaskCount > 0
-                  ? ` ${groupPendingDeleteTaskCount} task${groupPendingDeleteTaskCount === 1 ? "" : "s"} in this group will be moved to "${remainingGroupsAfterDelete[0].name}".`
+                  ? ` ${groupPendingDeleteTaskCount} task${groupPendingDeleteTaskCount === 1 ? "" : "s"} in this group will be moved to "${remainingGroupsAfterDelete[0]?.name}".`
                   : ""}
               </p>
             )}
             <div className="modal-actions">
-              <button className="quiet-button" disabled={busy} onClick={() => setDeleteGroupId(null)}>{remainingGroupsAfterDelete.length === 0 ? "Okay" : "Keep group"}</button>
-              {remainingGroupsAfterDelete.length > 0 && (
+              <button className="quiet-button" disabled={busy} onClick={() => setDeleteGroupId(null)}>{!canConfirmDeleteGroup ? "Okay" : "Keep group"}</button>
+              {canConfirmDeleteGroup && (
                 <button className="danger-button" disabled={busy} onClick={confirmDeleteGroup}>{busy ? "Deleting…" : "Yes, delete"}</button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {groupPendingMove && (
+        <div className="modal-backdrop">
+          <div className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="move-group-title">
+            <span className="migration-mark">{movingToHousehold ? <IconUsers /> : <IconLock />}</span>
+            <h2 id="move-group-title">{movingToHousehold ? <>Share &ldquo;{groupPendingMove.name}&rdquo; with your household?</> : <>Make &ldquo;{groupPendingMove.name}&rdquo; private?</>}</h2>
+            <p>
+              {movingToHousehold
+                ? `Everyone in your household will see this list and its ${groupPendingMoveTasks.length} task${groupPendingMoveTasks.length === 1 ? "" : "s"}, and can add, edit and complete tasks in it. You can make it private again later.`
+                : `Only you will see this list and its ${groupPendingMoveTasks.length} task${groupPendingMoveTasks.length === 1 ? "" : "s"}. Other household members will lose access, including to tasks they added.`}
+            </p>
+            <div className="modal-actions">
+              <button className="quiet-button" disabled={busy} onClick={() => setMoveGroupId(null)}>Cancel</button>
+              <button className="add-button" disabled={busy} onClick={confirmMoveGroup}>{busy ? "Moving…" : movingToHousehold ? "Share list" : "Make private"}</button>
             </div>
           </div>
         </div>

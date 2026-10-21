@@ -7,10 +7,7 @@ import { createPortal } from "react-dom";
 import {
   acceptHouseholdInvite,
   createHousehold,
-  findPendingInvite,
-  getUserHouseholdId,
   inviteToHousehold,
-  subscribeToHousehold,
 } from "@/lib/household-repository";
 import {
   inviteSlotsLeft,
@@ -18,11 +15,9 @@ import {
   MAX_INVITEES,
   memberLabel,
   parseInviteEmails,
-  type Household,
-  type HouseholdInvite,
-  type HouseholdMember,
 } from "@/lib/household-types";
 import { IconUsers, IconX } from "@/lib/icons";
+import type { HouseholdState } from "./use-household";
 
 const messageFor = (error: unknown) => {
   const message = error instanceof Error ? error.message : "Something went wrong.";
@@ -33,49 +28,22 @@ const messageFor = (error: unknown) => {
 
 // Sidebar button plus the household dialog: create a household and invite
 // family by email, accept an invitation, or see who is in the household.
-// Everything else in the app stays private for now.
-export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
-  const [householdId, setHouseholdId] = useState<string | null>(null);
-  const [invite, setInvite] = useState<HouseholdInvite | null>(null);
-  const [household, setHousehold] = useState<Household | null>(null);
-  const [members, setMembers] = useState<HouseholdMember[]>([]);
+export function HouseholdPanel({
+  db,
+  user,
+  state,
+}: {
+  db: Firestore;
+  user: User;
+  state: HouseholdState;
+}) {
+  const { householdId, invite, household, members, joinedHousehold } = state;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [inviteText, setInviteText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const id = await getUserHouseholdId(db, user.uid);
-        if (!active) return;
-        setHouseholdId(id);
-        if (id) {
-          setInvite(null);
-          return;
-        }
-        const pending = await findPendingInvite(db, user);
-        if (active) setInvite(pending);
-      } catch {
-        // Offline or not reachable yet; the button still opens the dialog.
-      }
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, [db, user]);
-
-  useEffect(() => {
-    if (!householdId) return;
-    return subscribeToHousehold(db, householdId, {
-      onHousehold: setHousehold,
-      onMembers: setMembers,
-      onError: (nextError) => setError(messageFor(nextError)),
-    });
-  }, [db, householdId]);
+  const [actionError, setActionError] = useState("");
+  const error = actionError || state.error;
 
   useEffect(() => {
     if (!open) return;
@@ -88,13 +56,13 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
 
   const close = () => {
     setOpen(false);
-    setError("");
+    setActionError("");
   };
 
   const parseInvitees = () => {
     const parsed = parseInviteEmails(inviteText, user.email ?? "");
     if (parsed.invalid.length) {
-      setError(`These don't look like email addresses: ${parsed.invalid.join(", ")}`);
+      setActionError(`These don't look like email addresses: ${parsed.invalid.join(", ")}`);
       return null;
     }
     return parsed;
@@ -102,11 +70,11 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
-    setError("");
+    setActionError("");
     const parsed = parseInvitees();
     if (!parsed) return;
     if (parsed.tooMany) {
-      setError(
+      setActionError(
         `A household holds ${MAX_HOUSEHOLD_MEMBERS} people including you, so you can invite up to ${MAX_INVITEES}.`,
       );
       return;
@@ -114,11 +82,10 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
     setBusy(true);
     try {
       const id = await createHousehold(db, user, name, parsed.emails);
-      setHouseholdId(id);
-      setInvite(null);
+      joinedHousehold(id);
       setInviteText("");
     } catch (nextError) {
-      setError(messageFor(nextError));
+      setActionError(messageFor(nextError));
     } finally {
       setBusy(false);
     }
@@ -127,16 +94,16 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
   const inviteMore = async (event: FormEvent) => {
     event.preventDefault();
     if (!household) return;
-    setError("");
+    setActionError("");
     const parsed = parseInvitees();
     if (!parsed) return;
     const fresh = parsed.emails.filter((email) => !household.invitedEmails.includes(email));
     if (!fresh.length) {
-      setError("Add at least one new email address.");
+      setActionError("Add at least one new email address.");
       return;
     }
     if (fresh.length > inviteSlotsLeft(household.invitedEmails)) {
-      setError(`You can invite ${inviteSlotsLeft(household.invitedEmails)} more.`);
+      setActionError(`You can invite ${inviteSlotsLeft(household.invitedEmails)} more.`);
       return;
     }
     setBusy(true);
@@ -144,7 +111,7 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
       await inviteToHousehold(db, user, household, fresh);
       setInviteText("");
     } catch (nextError) {
-      setError(messageFor(nextError));
+      setActionError(messageFor(nextError));
     } finally {
       setBusy(false);
     }
@@ -152,14 +119,13 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
 
   const accept = async () => {
     if (!invite) return;
-    setError("");
+    setActionError("");
     setBusy(true);
     try {
       await acceptHouseholdInvite(db, user, invite);
-      setHouseholdId(invite.householdId);
-      setInvite(null);
+      joinedHousehold(invite.householdId);
     } catch (nextError) {
-      setError(messageFor(nextError));
+      setActionError(messageFor(nextError));
     } finally {
       setBusy(false);
     }
@@ -216,7 +182,8 @@ export function HouseholdPanel({ db, user }: { db: Firestore; user: User }) {
               ))}
             </ul>
             <p className="household-note">
-              Shared lists are coming next. Everything you have now stays private to you.
+              Add shared lists from the Household section of the sidebar. Lists you already have stay
+              private until you choose to share them.
             </p>
             {isOwner && slotsLeft > 0 && (
               <form onSubmit={inviteMore}>
