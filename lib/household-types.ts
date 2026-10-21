@@ -137,3 +137,53 @@ export const matchesAssigneeFilter = (
   if (filter === "mine") return !shared || task.assigneeId === userId;
   return shared && !task.assigneeId;
 };
+
+export const householdOnly = (tasks: Task[]): Task[] =>
+  tasks.filter((task) => scopeOf(task) === "household");
+
+// Tasks that are "yours": every private task, plus household tasks assigned
+// to you or completed by you.
+export const tasksForPerson = (tasks: Task[], userId: string): Task[] =>
+  tasks.filter(
+    (task) =>
+      scopeOf(task) === "private" ||
+      task.assigneeId === userId ||
+      task.completedBy === userId,
+  );
+
+// Completions credited to you: private tasks you finished, and household
+// tasks you completed yourself.
+export const completedByPerson = (tasks: Task[], userId: string): Task[] =>
+  tasks.filter(
+    (task) =>
+      task.completed &&
+      (scopeOf(task) === "private" || task.completedBy === userId),
+  );
+
+const dayKey = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+// How many household tasks each member completed in the `days` days ending at
+// referenceDate (inclusive), in the order the members were given.
+export const completionsByMember = (
+  tasks: Task[],
+  memberIds: string[],
+  days: number,
+  referenceDate: string,
+): { uid: string; count: number }[] => {
+  const counts = new Map(memberIds.map((uid) => [uid, 0]));
+  const end = new Date(`${referenceDate}T12:00:00`);
+  if (!Number.isNaN(end.getTime())) {
+    const start = new Date(end);
+    start.setDate(start.getDate() - (days - 1));
+    const from = dayKey(start);
+    const to = dayKey(end);
+    tasks.forEach((task) => {
+      if (!task.completed || !task.completedAt || !task.completedBy) return;
+      const day = task.completedAt.slice(0, 10);
+      if (day < from || day > to || !counts.has(task.completedBy)) return;
+      counts.set(task.completedBy, (counts.get(task.completedBy) ?? 0) + 1);
+    });
+  }
+  return memberIds.map((uid) => ({ uid, count: counts.get(uid) ?? 0 }));
+};

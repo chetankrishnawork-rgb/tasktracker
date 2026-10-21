@@ -63,11 +63,15 @@ import { subscribeToSharedSpace } from "@/lib/household-repository";
 import {
   canDeleteGroup,
   canMoveGroup,
+  completedByPerson,
+  completionsByMember,
+  householdOnly,
   matchesAssigneeFilter,
   memberLabel,
   scopeOf,
   splitGroupsByScope,
   taskIdsByScope,
+  tasksForPerson,
   type AssigneeFilter,
 } from "@/lib/household-types";
 import {
@@ -267,6 +271,7 @@ export default function TaskTrackerApp() {
   const [newGroupScope, setNewGroupScope] = useState<Scope>("household");
   const [assignee, setAssignee] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>("all");
+  const [statsView, setStatsView] = useState<"me" | "household">("me");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
@@ -368,8 +373,13 @@ export default function TaskTrackerApp() {
     if (!notifyEnabled) return;
     if (authStatus !== "signed-in") return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    // Only tasks that are yours: private ones and household ones assigned
+    // to you, not the whole household's.
     const dueTodayCount = tasks.filter(
-      (task) => !task.completed && task.dueDate === today(),
+      (task) =>
+        !task.completed &&
+        task.dueDate === today() &&
+        matchesAssigneeFilter(task, "mine", user?.uid ?? ""),
     ).length;
     if (!dueTodayCount) return;
     if (localStorage.getItem(notifiedDateStorageKey) === today()) return;
@@ -378,7 +388,7 @@ export default function TaskTrackerApp() {
       icon: "/icon-192.png",
     });
     localStorage.setItem(notifiedDateStorageKey, today());
-  }, [notifyEnabled, authStatus, tasks]);
+  }, [notifyEnabled, authStatus, tasks, user]);
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
@@ -909,11 +919,34 @@ export default function TaskTrackerApp() {
     .map((part) => part[0].toUpperCase())
     .join("");
 
-  const streak = completionStreak(tasks, today());
-  const last14Days = completionsByDay(tasks, 14, today());
+  // Stats are about you by default. In a household you can switch to the
+  // household's shared lists, which count everyone's completions.
+  const statsScope = householdId ? statsView : "me";
+  const statsTasks = statsScope === "household"
+    ? householdOnly(tasks)
+    : tasksForPerson(tasks, user.uid);
+  const statsCompleted = statsScope === "household"
+    ? statsTasks.filter((task) => task.completed)
+    : completedByPerson(tasks, user.uid);
+  const statsGroups = statsScope === "household"
+    ? groupsByScope.household
+    : groups.filter(
+        (group) =>
+          scopeOf(group) === "private" ||
+          statsTasks.some((task) => task.groupId === group.id),
+      );
+  const streak = completionStreak(statsCompleted, today());
+  const last14Days = completionsByDay(statsCompleted, 14, today());
   const completedThisWeek = last14Days.slice(-7).reduce((sum, day) => sum + day.count, 0);
-  const groupBreakdown = tasksByGroupCounts(tasks, groups);
+  const groupBreakdown = tasksByGroupCounts(statsTasks, statsGroups);
   const maxDayCount = Math.max(1, ...last14Days.map((day) => day.count));
+  const memberWeek = completionsByMember(
+    statsTasks,
+    household.members.map((member) => member.uid),
+    7,
+    today(),
+  );
+  const maxMemberCount = Math.max(1, ...memberWeek.map((entry) => entry.count));
 
   const moveContext = {
     userId: user.uid,
@@ -1082,10 +1115,16 @@ export default function TaskTrackerApp() {
             </div>
           ) : filter === "Stats" ? (
             <div className="stats-view">
+              {householdId && (
+                <div className="assignee-filter" role="group" aria-label="Whose stats">
+                  <button type="button" className={statsScope === "me" ? "active" : ""} aria-pressed={statsScope === "me"} onClick={() => setStatsView("me")}>Me</button>
+                  <button type="button" className={statsScope === "household" ? "active" : ""} aria-pressed={statsScope === "household"} onClick={() => setStatsView("household")}>Household</button>
+                </div>
+              )}
               <div className="stats-cards">
                 <div className="stat-card"><strong>{streak}</strong><span>Day streak</span></div>
                 <div className="stat-card"><strong>{completedThisWeek}</strong><span>Completed this week</span></div>
-                <div className="stat-card"><strong>{counts.done}</strong><span>Completed all-time</span></div>
+                <div className="stat-card"><strong>{statsCompleted.length}</strong><span>Completed all-time</span></div>
               </div>
               <div className="stats-chart">
                 <h2>Last 14 days</h2>
@@ -1101,6 +1140,18 @@ export default function TaskTrackerApp() {
                   })}
                 </div>
               </div>
+              {statsScope === "household" && (
+                <div className="stats-groups">
+                  <h2>Completed this week</h2>
+                  {household.members.map((member, index) => (
+                    <div className="stats-group-row" key={member.uid}>
+                      <span className="stats-group-name">{memberLabel(member)}{member.uid === user.uid ? " (you)" : ""}</span>
+                      <div className="stats-group-bar"><div className="stats-group-bar-fill" style={{ width: `${(memberWeek[index].count / maxMemberCount) * 100}%`, background: "var(--green)" }} /></div>
+                      <span className="stats-group-count">{memberWeek[index].count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="stats-groups">
                 <h2>By group</h2>
                 {groupBreakdown.length === 0 && <p className="label-hint">No groups yet.</p>}
