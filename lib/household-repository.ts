@@ -166,3 +166,30 @@ export function subscribeToHousehold(
     unsubscribeMembers();
   };
 }
+
+// Invites more people into an existing household. Only the owner can do this
+// (enforced by the rules); addresses already invited are skipped.
+export async function inviteToHousehold(
+  db: Firestore,
+  user: User,
+  household: Household,
+  emails: string[],
+) {
+  const fresh = emails.filter((email) => !household.invitedEmails.includes(email));
+  if (!fresh.length) return;
+
+  const batch = writeBatch(db);
+  batch.update(doc(db, "households", household.id), {
+    invitedEmails: [...household.invitedEmails, ...fresh],
+    updatedAt: serverTimestamp(),
+  });
+  fresh.forEach((email) => {
+    batch.set(doc(db, "householdInvites", email), {
+      householdId: household.id,
+      householdName: household.name,
+      invitedBy: user.uid,
+      createdAt: serverTimestamp(),
+    });
+  });
+  await batch.commit();
+}

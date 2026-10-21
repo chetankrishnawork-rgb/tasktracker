@@ -72,7 +72,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .stats-group-bar-fill { height: 100%; border-radius: 99px; }
 .stats-group-count { text-align: right; color: var(--muted); }
 
-.account-card { margin-top: auto; border-top: 1px solid #d8d6cc; padding: 17px 5px 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) 36px; align-items: center; gap: 9px; }
+.account-card { margin-top: auto; border-top: 1px solid #d8d6cc; padding: 17px 5px 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) 36px 36px; align-items: center; gap: 9px; }
 .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: 11px; font-weight: 800; }
 .account-card div { min-width: 0; display: grid; gap: 2px; }
 .account-card strong, .account-card span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -398,3 +398,21 @@ button:disabled { opacity: .58; cursor: progress; }
   [data-theme="dark"] .main-nav { background: rgba(22,23,15,.97); border-top-color: var(--line); }
   [data-theme="dark"] .modal-actions { background: #1e1f18; border-top-color: var(--line); }
 }
+
+/* Household */
+.account-card .household-trigger { position: relative; }
+.account-card .household-trigger:hover { color: var(--green); }
+.household-dot { position: absolute; top: 5px; right: 5px; width: 9px; height: 9px; border-radius: 50%; background: #b77954; border: 2px solid #eeece3; }
+.household-note { margin: 0 0 17px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.household-error { margin: -8px 0 15px; padding: 10px 12px; border-radius: 7px; background: #f1ddd8; color: #8a3326; font-size: 12px; line-height: 1.45; }
+.household-list { list-style: none; margin: 0 0 16px; padding: 0; border-top: 1px solid var(--line); }
+.household-list li { display: flex; align-items: center; gap: 11px; min-height: 58px; border-bottom: 1px solid var(--line); }
+.household-list li div { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.household-list li strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.household-list li span:not(.avatar) { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.household-waiting .avatar { background: #a9aaa1; }
+.household-badge { font-style: normal; padding: 3px 8px; border-radius: 999px; background: #e3e6dd; color: #4e5f51; font-size: 10px; font-weight: 750; letter-spacing: .3px; }
+[data-theme="dark"] .household-dot { border-color: #1b1c15; }
+[data-theme="dark"] .household-error { background: #3a2621; color: #e6b3a8; }
+[data-theme="dark"] .household-badge { background: #2a2f25; color: #b9c4b3; }
+[data-theme="dark"] .household-note { color: #9a9c8e; }
