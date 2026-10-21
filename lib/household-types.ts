@@ -122,3 +122,18 @@ export const taskIdsByScope = (
   });
   return result;
 };
+
+export type AssigneeFilter = "all" | "mine" | "unassigned";
+
+// Private tasks are always yours; household tasks are yours when assigned to
+// you, and "unassigned" means a household task nobody has claimed.
+export const matchesAssigneeFilter = (
+  task: Task,
+  filter: AssigneeFilter,
+  userId: string,
+): boolean => {
+  if (filter === "all") return true;
+  const shared = scopeOf(task) === "household";
+  if (filter === "mine") return !shared || task.assigneeId === userId;
+  return shared && !task.assigneeId;
+};

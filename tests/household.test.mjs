@@ -170,3 +170,38 @@ test("moving a list copies everything before removing the originals", async () =
   const remove = repo.indexOf("commitInChunks(db, removals)");
   assert.ok(copy > 0 && remove > copy);
 });
+
+test("matchesAssigneeFilter: Mine includes private tasks and tasks assigned to you", async () => {
+  const { matchesAssigneeFilter } = await import("../lib/household-types.ts");
+  const base = {
+    id: "1", title: "T", groupId: "g", priority: "Medium", dueDate: "", completed: false,
+    completedAt: null, createdAt: "", subtasks: [], seriesId: null,
+  };
+  const privateTask = { ...base, scope: "private" };
+  const mine = { ...base, scope: "household", assigneeId: "u1" };
+  const theirs = { ...base, scope: "household", assigneeId: "u2" };
+  const open = { ...base, scope: "household", assigneeId: null };
+
+  assert.deepEqual([privateTask, mine, theirs, open].map((t) => matchesAssigneeFilter(t, "all", "u1")), [true, true, true, true]);
+  assert.deepEqual([privateTask, mine, theirs, open].map((t) => matchesAssigneeFilter(t, "mine", "u1")), [true, true, false, false]);
+  assert.deepEqual([privateTask, mine, theirs, open].map((t) => matchesAssigneeFilter(t, "unassigned", "u1")), [false, false, false, true]);
+});
+
+test("assignment is wired through the app and repository", async () => {
+  const [app, repo] = await Promise.all([
+    read("app/task-tracker-app.tsx"),
+    read("lib/task-tracker-repository.ts"),
+  ]);
+  assert.match(app, /setTaskAssignee\(db, spaceFor\("household"\), task\.id, value \|\| null\)/);
+  assert.match(app, /assigneeId,\n\s+\}\);/);
+  assert.match(app, /aria-label="Filter by who it is for"/);
+  assert.match(repo, /completedBy: task\.completed \? null : space\.userId/);
+  assert.match(repo, /assigneeFields\(space, details\.assigneeId\)/);
+});
+
+test("rules allow assignee and completedBy only on household tasks", async () => {
+  const rules = await read("firestore.rules");
+  const [userTask] = rules.split("function validHousehold()");
+  assert.doesNotMatch(userTask.slice(userTask.indexOf("function validTask()")), /assigneeId/);
+  assert.match(rules, /'assigneeId', 'createdBy', 'completedBy'/);
+});

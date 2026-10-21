@@ -48,6 +48,10 @@ const spaceDoc = (
 const creatorFields = (space: Space) =>
   space.scope === "household" ? { createdBy: space.userId } : {};
 
+// Only household tasks can be assigned; private tasks have no assignee.
+const assigneeFields = (space: Space, assigneeId: string | null | undefined) =>
+  space.scope === "household" ? { assigneeId: assigneeId ?? null } : {};
+
 export const mapGroups = (
   snapshot: QuerySnapshot<DocumentData>,
   scope: Scope = "private",
@@ -92,6 +96,8 @@ export const mapTasks = (
       seriesId: data.seriesId ? String(data.seriesId) : null,
       scope,
       createdBy: typeof data.createdBy === "string" ? data.createdBy : undefined,
+      assigneeId: typeof data.assigneeId === "string" ? data.assigneeId : null,
+      completedBy: typeof data.completedBy === "string" ? data.completedBy : null,
     };
   });
 
@@ -209,7 +215,12 @@ export async function createTasks(
   db: Firestore,
   space: Space,
   titles: string[],
-  details: { groupId: string; priority: Priority; dueDate: string },
+  details: {
+    groupId: string;
+    priority: Priority;
+    dueDate: string;
+    assigneeId?: string | null;
+  },
 ) {
   for (let start = 0; start < titles.length; start += 400) {
     const batch = writeBatch(db);
@@ -223,6 +234,7 @@ export async function createTasks(
         completed: false,
         completedAt: null,
         ...creatorFields(space),
+        ...assigneeFields(space, details.assigneeId),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -239,7 +251,12 @@ export async function createRecurringTasks(
   db: Firestore,
   space: Space,
   title: string,
-  details: { groupId: string; priority: Priority; dates: string[] },
+  details: {
+    groupId: string;
+    priority: Priority;
+    dates: string[];
+    assigneeId?: string | null;
+  },
 ) {
   const seriesId = doc(spaceCollection(db, space, "tasks")).id;
   for (let start = 0; start < details.dates.length; start += 400) {
@@ -255,6 +272,7 @@ export async function createRecurringTasks(
         completedAt: null,
         seriesId,
         ...creatorFields(space),
+        ...assigneeFields(space, details.assigneeId),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -271,6 +289,22 @@ export async function setTaskCompleted(
   await updateDoc(spaceDoc(db, space, "tasks", task.id), {
     completed: !task.completed,
     completedAt: task.completed ? null : serverTimestamp(),
+    ...(space.scope === "household"
+      ? { completedBy: task.completed ? null : space.userId }
+      : {}),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// Assigns a household task to a member, or to nobody (null).
+export async function setTaskAssignee(
+  db: Firestore,
+  space: Space,
+  taskId: string,
+  assigneeId: string | null,
+) {
+  await updateDoc(spaceDoc(db, space, "tasks", taskId), {
+    assigneeId,
     updatedAt: serverTimestamp(),
   });
 }

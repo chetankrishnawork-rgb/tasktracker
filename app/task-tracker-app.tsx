@@ -34,6 +34,7 @@ import {
   importLegacyData,
   localMigrationComplete,
   moveGroup,
+  setTaskAssignee,
   setTaskCompleted,
   setTaskSubtasks,
   subscribeToWorkspace,
@@ -62,9 +63,12 @@ import { subscribeToSharedSpace } from "@/lib/household-repository";
 import {
   canDeleteGroup,
   canMoveGroup,
+  matchesAssigneeFilter,
+  memberLabel,
   scopeOf,
   splitGroupsByScope,
   taskIdsByScope,
+  type AssigneeFilter,
 } from "@/lib/household-types";
 import {
   firebaseConfigured,
@@ -261,6 +265,8 @@ export default function TaskTrackerApp() {
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [moveGroupId, setMoveGroupId] = useState<string | null>(null);
   const [newGroupScope, setNewGroupScope] = useState<Scope>("household");
+  const [assignee, setAssignee] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>("all");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
@@ -497,6 +503,13 @@ export default function TaskTrackerApp() {
         .filter((task) =>
           task.title.toLowerCase().includes(query.trim().toLowerCase()),
         )
+        .filter((task) =>
+          matchesAssigneeFilter(
+            task,
+            householdId ? assigneeFilter : "all",
+            user?.uid ?? "",
+          ),
+        )
         .filter((task) => {
           if (filter === "Today")
             return !task.completed && task.dueDate === today();
@@ -510,7 +523,7 @@ export default function TaskTrackerApp() {
             Number(a.completed) - Number(b.completed) ||
             (a.dueDate || "9999").localeCompare(b.dueDate || "9999"),
         ),
-    [tasks, groupFilter, query, filter],
+    [tasks, groupFilter, query, filter, assigneeFilter, householdId, user],
   );
 
   const recurringDates = useMemo(
@@ -541,6 +554,14 @@ export default function TaskTrackerApp() {
   const scopeOfGroup = (id: string): Scope =>
     scopeOf(groups.find((group) => group.id === id) ?? {});
   const groupsByScope = splitGroupsByScope(groups);
+  const memberNameById = (uid: string | null | undefined) => {
+    if (!uid) return "";
+    if (uid === user.uid) return "you";
+    const member = household.members.find((item) => item.uid === uid);
+    return member ? memberLabel(member) : "a family member";
+  };
+  const changeAssignee = (task: Task, value: string) =>
+    run(() => setTaskAssignee(db, spaceFor("household"), task.id, value || null));
   const openNewGroup = (scope: Scope) => {
     setNewGroupScope(scope);
     setNewGroup(true);
@@ -598,10 +619,13 @@ export default function TaskTrackerApp() {
     setRecurringStart(today());
     setRecurringEnd(today());
     setIncludeWeekends(false);
+    setAssignee("");
   };
 
   const addTaskRecords = async (event: FormEvent) => {
     event.preventDefault();
+    const assigneeId =
+      scopeOfGroup(activeGroupId) === "household" && assignee ? assignee : null;
     if (composer === "recurring") {
       if (!title.trim() || !activeGroupId || !recurringDates.length) return;
       await run(async () => {
@@ -609,6 +633,7 @@ export default function TaskTrackerApp() {
           groupId: activeGroupId,
           priority,
           dates: recurringDates,
+          assigneeId,
         });
         resetComposer();
       });
@@ -623,6 +648,7 @@ export default function TaskTrackerApp() {
         groupId: activeGroupId,
         priority,
         dueDate,
+        assigneeId,
       });
       resetComposer();
     });
@@ -999,6 +1025,13 @@ export default function TaskTrackerApp() {
             <div><strong>{counts.done}</strong><span>Completed</span></div>
           </div>
 
+          {householdId && filter !== "Stats" && (
+            <div className="assignee-filter" role="group" aria-label="Filter by who it is for">
+              {([["all", "Everyone"], ["mine", "Mine"], ["unassigned", "Unassigned"]] as [AssigneeFilter, string][]).map(([value, label]) => (
+                <button key={value} type="button" className={assigneeFilter === value ? "active" : ""} aria-pressed={assigneeFilter === value} onClick={() => setAssigneeFilter(value)}>{label}</button>
+              ))}
+            </div>
+          )}
           {notice && <div className="notice-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss message"><IconX /></button></div>}
           {filter !== "Calendar" && filter !== "Stats" && selected.length > 0 && <div className="selection-bar"><strong>{selected.length} selected</strong><button onClick={() => setSelected([])}>Clear</button><button className="delete-text" onClick={() => setDeleteIds(selected)}>Delete selected</button></div>}
 
@@ -1099,10 +1132,16 @@ export default function TaskTrackerApp() {
                           <div className="task-meta">
                             <span className="group-tag"><i style={{ background: group?.color ?? "#586A5B" }} />{group?.name ?? "Group"}{scopeOf(task) === "household" && <span className="group-shared" title="Shared with your household"><IconUsers /></span>}</span>
                             <span>{formatDate(task.dueDate)}</span>
-                            {task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}</span>}
+                            {task.completedAt && <span>Completed {new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(task.completedAt))}{scopeOf(task) === "household" && task.completedBy ? ` by ${memberNameById(task.completedBy)}` : ""}</span>}
                             {task.seriesId && <button type="button" className="series-chip" aria-label="Edit repeating series" title="Part of a repeating series — edit or delete upcoming occurrences" onClick={() => openSeriesModal(task)}><IconRepeat /></button>}
                           </div>
                         </div>
+                        {scopeOf(task) === "household" && (
+                          <select className="assignee-select" aria-label={`Assign ${task.title}`} title="Assigned to" value={task.assigneeId ?? ""} disabled={busy} onChange={(event) => changeAssignee(task, event.target.value)}>
+                            <option value="">Anyone</option>
+                            {household.members.map((member) => <option key={member.uid} value={member.uid}>{memberLabel(member)}{member.uid === user.uid ? " (you)" : ""}</option>)}
+                          </select>
+                        )}
                         <span className={`priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
                         <button type="button" className={`subtask-chip ${expanded ? "expanded" : ""} ${summary.total > 0 && summary.done === summary.total ? "all-done" : ""}`} aria-label={summary.total ? `${summary.done} of ${summary.total} subtasks done, toggle checklist` : "Add subtasks"} title={summary.total ? `${summary.done}/${summary.total} subtasks` : "Add subtasks"} onClick={() => toggleSubtaskPanel(task.id)}>
                           {summary.total > 0 ? `${summary.done}/${summary.total}` : <IconPlus />}
@@ -1144,6 +1183,9 @@ export default function TaskTrackerApp() {
               <label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value as Priority)}><option>High</option><option>Medium</option><option>Low</option></select></label>
               {composer !== "recurring" && <label>Due date<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>}
             </div>
+            {householdId && scopeOfGroup(activeGroupId) === "household" && (
+              <label>Assign to<select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">Anyone</option>{household.members.map((member) => <option key={member.uid} value={member.uid}>{memberLabel(member)}{member.uid === user.uid ? " (you)" : ""}</option>)}</select></label>
+            )}
             {composer === "recurring" && (
               <>
                 <div className="form-grid two-col">
