@@ -205,3 +205,69 @@ test("rules allow assignee and completedBy only on household tasks", async () =>
   assert.doesNotMatch(userTask.slice(userTask.indexOf("function validTask()")), /assigneeId/);
   assert.match(rules, /'assigneeId', 'createdBy', 'completedBy'/);
 });
+
+const statsBase = {
+  title: "T", groupId: "g", priority: "Medium", dueDate: "", completed: false,
+  completedAt: null, createdAt: "", subtasks: [], seriesId: null,
+};
+
+test("tasksForPerson keeps private tasks and household tasks assigned to or completed by you", async () => {
+  const { tasksForPerson } = await import("../lib/household-types.ts");
+  const tasks = [
+    { ...statsBase, id: "p", scope: "private" },
+    { ...statsBase, id: "a", scope: "household", assigneeId: "u1" },
+    { ...statsBase, id: "c", scope: "household", assigneeId: null, completedBy: "u1" },
+    { ...statsBase, id: "o", scope: "household", assigneeId: "u2" },
+    { ...statsBase, id: "n", scope: "household", assigneeId: null },
+  ];
+  assert.deepEqual(tasksForPerson(tasks, "u1").map((t) => t.id), ["p", "a", "c"]);
+});
+
+test("completedByPerson credits you only for what you finished", async () => {
+  const { completedByPerson } = await import("../lib/household-types.ts");
+  const done = { ...statsBase, completed: true, completedAt: "2026-10-20T10:00:00.000Z" };
+  const tasks = [
+    { ...done, id: "p", scope: "private" },
+    { ...done, id: "mine", scope: "household", completedBy: "u1" },
+    { ...done, id: "theirs", scope: "household", completedBy: "u2" },
+    { ...done, id: "legacy", scope: "household", completedBy: null },
+    { ...statsBase, id: "open", scope: "private" },
+  ];
+  assert.deepEqual(completedByPerson(tasks, "u1").map((t) => t.id), ["p", "mine"]);
+});
+
+test("householdOnly drops private tasks", async () => {
+  const { householdOnly } = await import("../lib/household-types.ts");
+  const tasks = [
+    { ...statsBase, id: "p", scope: "private" },
+    { ...statsBase, id: "h", scope: "household" },
+    { ...statsBase, id: "x" },
+  ];
+  assert.deepEqual(householdOnly(tasks).map((t) => t.id), ["h"]);
+});
+
+test("completionsByMember counts each member's completions in the window", async () => {
+  const { completionsByMember } = await import("../lib/household-types.ts");
+  const done = (id, by, at) => ({
+    ...statsBase, id, scope: "household", completed: true, completedBy: by, completedAt: at,
+  });
+  const tasks = [
+    done("1", "u1", "2026-10-20T10:00:00.000Z"),
+    done("2", "u1", "2026-10-14T10:00:00.000Z"),
+    done("3", "u2", "2026-10-18T10:00:00.000Z"),
+    done("4", "u2", "2026-10-13T10:00:00.000Z"), // before the 7-day window
+    done("5", "u3", "2026-10-19T10:00:00.000Z"), // not a listed member
+    { ...statsBase, id: "6", scope: "household", completed: false },
+  ];
+  assert.deepEqual(completionsByMember(tasks, ["u1", "u2"], 7, "2026-10-20"), [
+    { uid: "u1", count: 2 },
+    { uid: "u2", count: 1 },
+  ]);
+});
+
+test("stats and notifications are scoped to the person", async () => {
+  const app = await read("app/task-tracker-app.tsx");
+  assert.match(app, /completedByPerson\(tasks, user\.uid\)/);
+  assert.match(app, /matchesAssigneeFilter\(task, "mine", user\?\.uid \?\? ""\)/);
+  assert.match(app, /aria-label="Whose stats"/);
+});
