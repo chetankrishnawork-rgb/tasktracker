@@ -78,3 +78,8 @@ export const memberLabel = (member: {
   email: string;
 }): string =>
   member.displayName.trim() || member.email.split("@")[0] || "Member";
+
+// How many more people the owner can still invite. Accepted invites stay in
+// invitedEmails, so its length is the number of seats already spoken for.
+export const inviteSlotsLeft = (invitedEmails: string[]): number =>
+  Math.max(0, MAX_INVITEES - invitedEmails.length);

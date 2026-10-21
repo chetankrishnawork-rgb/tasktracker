@@ -76,3 +76,22 @@ test("household rules cap invites at two and shared tasks track assignment", asy
   assert.match(rules, /invitedEmails\.size\(\) <= 2/);
   assert.match(rules, /'assigneeId', 'createdBy', 'completedBy'/);
 });
+
+test("inviteSlotsLeft counts seats still open for invitations", async () => {
+  const { inviteSlotsLeft } = await import("../lib/household-types.ts");
+  assert.equal(inviteSlotsLeft([]), 2);
+  assert.equal(inviteSlotsLeft(["a@x.com"]), 1);
+  assert.equal(inviteSlotsLeft(["a@x.com", "b@x.com"]), 0);
+  assert.equal(inviteSlotsLeft(["a@x.com", "b@x.com", "c@x.com"]), 0);
+});
+
+test("the app wires in the household panel with setup, join and invite flows", async () => {
+  const [app, panel] = await Promise.all([
+    read("app/task-tracker-app.tsx"),
+    read("app/household-panel.tsx"),
+  ]);
+  assert.match(app, /<HouseholdPanel db=\{db\} user=\{user\} \/>/);
+  assert.match(panel, /createHousehold\(db, user, name, parsed\.emails\)/);
+  assert.match(panel, /acceptHouseholdInvite\(db, user, invite\)/);
+  assert.match(panel, /inviteToHousehold\(db, user, household, fresh\)/);
+});

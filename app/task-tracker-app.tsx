@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { HouseholdPanel } from "./household-panel";
 import {
   createGroup,
   createRecurringTasks,
@@ -797,6 +798,7 @@ export default function TaskTrackerApp() {
         <div className="account-card">
           <span className="avatar">{initials}</span>
           <div><strong>{user.displayName || "Task Tracker user"}</strong><span>{user.email}</span></div>
+          <HouseholdPanel db={db} user={user} />
           <button aria-label="Sign out" title="Sign out" onClick={() => setConfirmSignOut(true)}><IconLogOut /></button>
         </div>
       </aside>
