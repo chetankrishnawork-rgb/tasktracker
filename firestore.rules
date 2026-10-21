@@ -8,15 +8,60 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Joining a household is matched on email, so the token must carry a
+    // verified one. Google sign-in always does.
+    function verifiedEmail() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email != null;
+    }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    // A user is a household member when their member document exists.
+    function isMember(householdId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    function isHouseholdOwner(householdId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/households/$(householdId)).data.ownerId == request.auth.uid;
+    }
+
+    // Used when the household and the owner's member document are created in
+    // the same batch, so the household does not exist yet when the member
+    // rule runs.
+    function isBootstrappingOwner(householdId) {
+      return signedIn()
+        && getAfter(/databases/$(database)/documents/households/$(householdId)).data.ownerId == request.auth.uid;
+    }
+
+    // True when an invite addressed to the caller's email points at this
+    // household.
+    function inviteFor(householdId) {
+      return exists(/databases/$(database)/documents/householdInvites/$(myEmail()))
+        && get(/databases/$(database)/documents/householdInvites/$(myEmail())).data.householdId == householdId;
+    }
+
     function validUser() {
       return request.resource.data.keys().hasOnly([
-          'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'
+          'email', 'displayName', 'photoURL', 'householdId', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.email is string
         && request.resource.data.displayName is string
         && request.resource.data.photoURL is string
         && request.resource.data.createdAt is timestamp
-        && request.resource.data.updatedAt is timestamp;
+        && request.resource.data.updatedAt is timestamp
+        && (!('householdId' in request.resource.data)
+          || (request.resource.data.householdId is string
+            && request.resource.data.householdId.size() <= 128));
     }
 
     function validGroup() {
@@ -59,6 +104,104 @@ service cloud.firestore {
             && request.resource.data.seriesId.size() <= 128));
     }
 
+    function validHousehold() {
+      return request.resource.data.keys().hasOnly([
+          'name', 'ownerId', 'invitedEmails', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.ownerId is string
+        && request.resource.data.invitedEmails is list
+        && request.resource.data.invitedEmails.size() <= 2
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validMember() {
+      return request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'photoURL', 'joinedAt', 'updatedAt'
+        ])
+        && request.resource.data.email is string
+        && request.resource.data.email == myEmail()
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 200
+        && request.resource.data.photoURL is string
+        && request.resource.data.photoURL.size() <= 2048
+        && request.resource.data.joinedAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validInvite() {
+      return request.resource.data.keys().hasOnly([
+          'householdId', 'householdName', 'invitedBy', 'createdAt'
+        ])
+        && request.resource.data.householdId is string
+        && request.resource.data.householdId.size() > 0
+        && request.resource.data.householdId.size() <= 128
+        && request.resource.data.householdName is string
+        && request.resource.data.householdName.size() <= 80
+        && request.resource.data.invitedBy is string
+        && request.resource.data.createdAt is timestamp;
+    }
+
+    function validSharedGroup() {
+      return request.resource.data.keys().hasOnly([
+          'name', 'color', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.color is string
+        && request.resource.data.color.matches('^#[0-9A-Fa-f]{6}$')
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdBy.size() <= 128
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    // Same checks as validTask, plus who created, is assigned to, and
+    // completed the task.
+    function validSharedTask() {
+      return request.resource.data.keys().hasOnly([
+          'title', 'groupId', 'priority', 'dueDate', 'completed',
+          'completedAt', 'createdAt', 'updatedAt', 'subtasks', 'seriesId',
+          'assigneeId', 'createdBy', 'completedBy'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 500
+        && request.resource.data.groupId is string
+        && request.resource.data.groupId.size() > 0
+        && request.resource.data.groupId.size() <= 128
+        && request.resource.data.priority in ['High', 'Medium', 'Low']
+        && request.resource.data.dueDate is string
+        && request.resource.data.dueDate.size() <= 10
+        && request.resource.data.completed is bool
+        && (request.resource.data.completedAt == null
+          || request.resource.data.completedAt is timestamp)
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && (!('subtasks' in request.resource.data)
+          || (request.resource.data.subtasks is list
+            && request.resource.data.subtasks.size() <= 50))
+        && (!('seriesId' in request.resource.data)
+          || (request.resource.data.seriesId is string
+            && request.resource.data.seriesId.size() <= 128))
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdBy.size() <= 128
+        && (!('assigneeId' in request.resource.data)
+          || request.resource.data.assigneeId == null
+          || (request.resource.data.assigneeId is string
+            && request.resource.data.assigneeId.size() <= 128))
+        && (!('completedBy' in request.resource.data)
+          || request.resource.data.completedBy == null
+          || (request.resource.data.completedBy is string
+            && request.resource.data.completedBy.size() <= 128));
+    }
+
+    // Private space: only the signed-in owner can touch anything under
+    // users/{userId}.
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId) && validUser();
@@ -89,6 +232,75 @@ service cloud.firestore {
         allow read, create, update: if isOwner(userId);
         allow delete: if false;
       }
+    }
+
+    // Shared space: a household of up to three members. Everything under it
+    // is readable and writable only by members.
+    match /households/{householdId} {
+      allow read: if isMember(householdId);
+      allow create: if verifiedEmail()
+        && validHousehold()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isMember(householdId)
+        && isHouseholdOwner(householdId)
+        && validHousehold()
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow read: if isMember(householdId);
+        allow create: if verifiedEmail()
+          && memberId == request.auth.uid
+          && validMember()
+          && (isBootstrappingOwner(householdId) || inviteFor(householdId));
+        allow update: if memberId == request.auth.uid
+          && isMember(householdId)
+          && validMember()
+          && request.resource.data.joinedAt == resource.data.joinedAt
+          && request.resource.data.email == resource.data.email;
+        allow delete: if false;
+      }
+
+      match /groups/{groupId} {
+        allow read: if isMember(householdId);
+        allow create: if isMember(householdId)
+          && validSharedGroup()
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isMember(householdId)
+          && validSharedGroup()
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isMember(householdId)
+          && resource.data.createdBy == request.auth.uid;
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isMember(householdId);
+        allow create: if isMember(householdId)
+          && validSharedTask()
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isMember(householdId)
+          && validSharedTask()
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isMember(householdId);
+      }
+    }
+
+    // Invites are keyed by the lowercased invitee email. They can be read by
+    // document id only (no listing), and only by the invitee.
+    match /householdInvites/{inviteId} {
+      allow get: if verifiedEmail() && inviteId == myEmail();
+      allow create: if verifiedEmail()
+        && validInvite()
+        && inviteId == inviteId.lower()
+        && request.resource.data.invitedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.ownerId == request.auth.uid
+        && inviteId in getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.invitedEmails;
+      allow update: if false;
+      allow delete: if (verifiedEmail() && inviteId == myEmail())
+        || (signedIn() && resource.data.invitedBy == request.auth.uid);
     }
   }
 }
