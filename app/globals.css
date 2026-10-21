@@ -6,6 +6,7 @@
   --cream: #ece9df;
   --green: #344d3d;
   --red: #a54e3f;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -318,6 +319,9 @@ button:disabled { opacity: .58; cursor: progress; }
   --cream: #1e1f18;
   --green: #7ea787;
   --red: #d98a73;
+  /* Lets native controls (date-picker calendar icon and popup, scrollbars)
+     render in their dark variant instead of black-on-dark. */
+  color-scheme: dark;
 }
 [data-theme="dark"] .sidebar { background: #1b1c15; border-right-color: var(--line); }
 [data-theme="dark"] .main-nav button, [data-theme="dark"] .group-list button { color: #a7a99a; }
@@ -356,7 +360,11 @@ button:disabled { opacity: .58; cursor: progress; }
 [data-theme="dark"] .subtask-add-row input { background: #16170f; border-color: #40423786; color: var(--ink); }
 [data-theme="dark"] .subtask-add-row button:hover { background: #1f2620; }
 [data-theme="dark"] .empty-state > span { border-color: #43453b; }
-[data-theme="dark"] .calendar-cell { background: rgba(255,255,255,.03); }
+[data-theme="dark"] .calendar-cell { background: rgba(255,255,255,.03); border-color: #43453b; }
+[data-theme="dark"] .calendar-cell.empty { background: transparent; border-color: transparent; }
+[data-theme="dark"] .calendar-cell.is-today { background: rgba(126,167,135,.12); border-color: var(--green); }
+[data-theme="dark"] .calendar-date { color: #a7a99a; }
+[data-theme="dark"] .calendar-cell.is-today .calendar-date { color: var(--green); }
 [data-theme="dark"] .calendar-task { background: color-mix(in srgb, var(--group-color) 30%, #1b1c15); }
 [data-theme="dark"] .stat-card { background: rgba(255,255,255,.03); border-color: var(--line); }
 [data-theme="dark"] .stats-chart-bars { border-bottom-color: var(--line); }
